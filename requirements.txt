@@ -1,5 +1,6 @@
 flask
 requests
 selenium
+selenium-wire
 webdriver-manager
 gunicorn
