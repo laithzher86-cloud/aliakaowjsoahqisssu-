@@ -35,6 +35,12 @@ PROXY_PASS = "i67s60ep"
 PROXY_IP = "px440401.pointtoserver.com"
 PROXY_PORT = "10780"
 
+# بروكسيات احتياطية
+BACKUP_PROXIES = [
+    {"ip": "px440401.pointtoserver.com", "port": "10780", "user": "purevpn0s8732217", "pass": "i67s60ep"},
+    {"ip": "proxy1.someproxy.com", "port": "8080", "user": "user1", "pass": "pass1"},
+]
+
 def get_proxy_options():
     """إعدادات البروكسي لـ Selenium Wire"""
     proxy_url = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_IP}:{PROXY_PORT}"
@@ -42,8 +48,57 @@ def get_proxy_options():
         "proxy": {
             "http": proxy_url,
             "https": proxy_url,
+            "no_proxy": "localhost,127.0.0.1"
         }
     }
+
+def get_backup_proxy_options():
+    """إعدادات بروكسي احتياطي"""
+    for proxy in BACKUP_PROXIES:
+        proxy_url = f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
+        yield {
+            "proxy": {
+                "http": proxy_url,
+                "https": proxy_url,
+                "no_proxy": "localhost,127.0.0.1"
+            }
+        }
+
+def create_driver(proxy_options=None, use_fallback=False):
+    """إنشاء متصفح مع أو بدون بروكسي"""
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument('--disable-web-security')
+    chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+    chrome_options.add_argument('--disable-popup-blocking')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--disable-notifications')
+    chrome_options.add_argument('--disable-extensions')
+    
+    # إضافات لتجنب الكشف
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    
+    if proxy_options:
+        try:
+            driver = webdriver.Chrome(
+                options=chrome_options,
+                seleniumwire_options=proxy_options
+            )
+            return driver
+        except Exception as e:
+            logger.warning(f"⚠️ فشل البروكسي: {e}")
+            if use_fallback:
+                return webdriver.Chrome(options=chrome_options)
+            raise
+    
+    return webdriver.Chrome(options=chrome_options)
 
 def ff(ccx, site):
     """
@@ -150,29 +205,41 @@ def ff(ccx, site):
     except Exception as e:
         return {"success": False, "code": None, "error": str(e)}
     
-    # ==================== 2. تشغيل المتصفح ====================
+    # ==================== 2. تشغيل المتصفح (مع محاولة بروكسيات متعددة) ====================
     driver = None
+    driver_created = False
+    
+    # محاولة 1: البروكسي الأساسي
     try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument('--disable-web-security')
-        chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-        chrome_options.add_argument('--disable-popup-blocking')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--disable-notifications')
-        
-        # إعدادات Selenium Wire مع البروكسي
-        seleniumwire_options = get_proxy_options()
-        
-        driver = webdriver.Chrome(
-            options=chrome_options,
-            seleniumwire_options=seleniumwire_options
-        )
+        logger.info("🔄 محاولة استخدام البروكسي الأساسي...")
+        proxy_options = get_proxy_options()
+        driver = create_driver(proxy_options, use_fallback=True)
+        driver_created = True
+    except Exception as e:
+        logger.warning(f"⚠️ فشل البروكسي الأساسي: {e}")
+    
+    # محاولة 2: بروكسيات احتياطية
+    if not driver_created:
+        for i, backup_proxy in enumerate(get_backup_proxy_options()):
+            try:
+                logger.info(f"🔄 محاولة استخدام البروكسي الاحتياطي {i+1}...")
+                driver = create_driver(backup_proxy, use_fallback=True)
+                driver_created = True
+                break
+            except Exception as e:
+                logger.warning(f"⚠️ فشل البروكسي الاحتياطي {i+1}: {e}")
+    
+    # محاولة 3: بدون بروكسي
+    if not driver_created:
+        try:
+            logger.info("🔄 محاولة بدون بروكسي...")
+            driver = create_driver(None, use_fallback=True)
+            driver_created = True
+        except Exception as e:
+            logger.error(f"❌ فشل جميع المحاولات: {e}")
+            return {"success": False, "code": None, "error": str(e)}
+    
+    try:
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         wait = WebDriverWait(driver, 15)
         driver.set_page_load_timeout(25)
