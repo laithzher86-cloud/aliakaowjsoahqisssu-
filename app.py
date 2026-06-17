@@ -1,10 +1,10 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات
 import time
 import re
 import json
 import requests
 from urllib.parse import urljoin
-from selenium import webdriver
+from seleniumwire import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
@@ -28,6 +28,22 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# ==================== إعدادات البروكسي ====================
+PROXY_USER = "purevpn0s8732217"
+PROXY_PASS = "i67s60ep"
+PROXY_IP = "px440401.pointtoserver.com"
+PROXY_PORT = "10780"
+
+def get_proxy_options():
+    """إعدادات البروكسي لـ Selenium Wire"""
+    proxy_url = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_IP}:{PROXY_PORT}"
+    return {
+        "proxy": {
+            "http": proxy_url,
+            "https": proxy_url,
+        }
+    }
 
 def ff(ccx, site):
     """
@@ -73,10 +89,8 @@ def ff(ccx, site):
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
-        proxy = "px440401.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
-        ip, port, user, pwd = proxy.split(":")
-        proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
-        proxies = {"http": proxy_url, "https": proxy_url}
+        proxy = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_IP}:{PROXY_PORT}"
+        proxies = {"http": proxy, "https": proxy}
         
         s = requests.Session()
         s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
@@ -151,9 +165,14 @@ def ff(ccx, site):
         chrome_options.add_argument('--disable-popup-blocking')
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-notifications')
-        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
         
-        driver = webdriver.Chrome(options=chrome_options)
+        # إعدادات Selenium Wire مع البروكسي
+        seleniumwire_options = get_proxy_options()
+        
+        driver = webdriver.Chrome(
+            options=chrome_options,
+            seleniumwire_options=seleniumwire_options
+        )
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         wait = WebDriverWait(driver, 15)
         driver.set_page_load_timeout(25)
@@ -427,15 +446,13 @@ def ff(ccx, site):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-             'Economy',
-             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'First', 
-            'by-items', 
-            'Standard', 
-            'Priority', 
-            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE'
-           
-             
+                'Economy',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+                'First', 
+                'by-items', 
+                'Standard', 
+                'Priority', 
+                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE'
             ]
             
             for attempt in range(10):
