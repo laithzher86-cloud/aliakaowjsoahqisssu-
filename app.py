@@ -428,6 +428,7 @@ def ff(ccx, site):
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
              'Economy',
+             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
              
             ]
             
