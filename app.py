@@ -431,11 +431,12 @@ def ff(ccx, site):
              'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
             'First', 
             'by-items', 
+            'Standard'
            
              
             ]
             
-            for attempt in range(15):
+            for attempt in range(10):
                 time.sleep(1.5)
                 
                 responses = driver.execute_script("return window.allResponses || [];")
