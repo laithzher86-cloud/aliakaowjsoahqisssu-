@@ -1,4 +1,4 @@
-Enter# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
+
 import time
 import re
 import json
