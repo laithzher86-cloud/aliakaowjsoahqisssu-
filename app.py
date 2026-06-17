@@ -1,10 +1,10 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
 import time
 import re
 import json
 import requests
 from urllib.parse import urljoin
-from seleniumwire import webdriver
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
@@ -28,58 +28,6 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# ==================== إعدادات البروكسي ====================
-PROXY_USER = "purevpn0s8732217"
-PROXY_PASS = "i67s60ep"
-PROXY_IP = "px440401.pointtoserver.com"
-PROXY_PORT = "10780"
-
-def get_proxy_options():
-    """إعدادات البروكسي لـ Selenium Wire مع دعم HTTPS"""
-    proxy_url = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_IP}:{PROXY_PORT}"
-    return {
-        "proxy": {
-            "http": proxy_url,
-            "https": proxy_url,
-            "no_proxy": "localhost,127.0.0.1"
-        },
-        "verify_ssl": False,
-        "suppress_connection_errors": True
-    }
-
-def create_driver(use_proxy=True):
-    """إنشاء متصفح مع أو بدون بروكسي"""
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
-    chrome_options.add_argument('--disable-web-security')
-    chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-    chrome_options.add_argument('--disable-popup-blocking')
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--disable-notifications')
-    chrome_options.add_argument('--disable-extensions')
-    chrome_options.add_argument('--ignore-certificate-errors')
-    chrome_options.add_argument('--allow-running-insecure-content')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    
-    if use_proxy:
-        try:
-            proxy_options = get_proxy_options()
-            driver = webdriver.Chrome(
-                options=chrome_options,
-                seleniumwire_options=proxy_options
-            )
-            return driver
-        except Exception as e:
-            logger.warning(f"⚠️ فشل البروكسي: {e}")
-            return webdriver.Chrome(options=chrome_options)
-    
-    return webdriver.Chrome(options=chrome_options)
 
 def ff(ccx, site):
     """
@@ -125,8 +73,10 @@ def ff(ccx, site):
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
-        proxy = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_IP}:{PROXY_PORT}"
-        proxies = {"http": proxy, "https": proxy}
+        proxy = "px440401.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
+        ip, port, user, pwd = proxy.split(":")
+        proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
+        proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
         s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
@@ -137,7 +87,7 @@ def ff(ccx, site):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10, verify=False)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
         if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products"}
         
@@ -176,11 +126,11 @@ def ff(ccx, site):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10, verify=False)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart"}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10, verify=False)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
         checkout_url = response.url
         
     except Exception as e:
@@ -189,8 +139,21 @@ def ff(ccx, site):
     # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
-        logger.info("🔄 محاولة استخدام البروكسي...")
-        driver = create_driver(use_proxy=True)
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument('--disable-web-security')
+        chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+        chrome_options.add_argument('--disable-popup-blocking')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-notifications')
+        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+        
+        driver = webdriver.Chrome(options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         wait = WebDriverWait(driver, 15)
         driver.set_page_load_timeout(25)
@@ -246,10 +209,10 @@ def ff(ccx, site):
             time.sleep(0.5)
             continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
             driver.execute_script("arguments[0].click();", continue_btn)
-            time.sleep(4)
+            time.sleep(2)
             
-        except Exception as e:
-            return {"success": False, "code": None, "error": f"Shipping fill failed: {str(e)}"}
+        except:
+            return {"success": False, "code": None, "error": "Shipping fill failed"}
         
         # ==================== 4. تعبئة الدفع ====================
         try:
@@ -334,8 +297,8 @@ def ff(ccx, site):
             if not (card_filled and expiry_filled and cvv_filled and name_filled):
                 return {"success": False, "code": None, "error": "Payment fill failed"}
             
-        except Exception as e:
-            return {"success": False, "code": None, "error": f"Payment error: {str(e)}"}
+        except:
+            return {"success": False, "code": None, "error": "Payment error"}
         
         # ==================== 5. اعتراض GraphQL ====================
         try:
@@ -464,13 +427,16 @@ def ff(ccx, site):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'First', 
-                'by-items', 
-                'Standard', 
-                'Priority', 
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE'
+             'Economy',
+             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'First', 
+            'by-items', 
+            'Standard', 
+            'Priority', 
+            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'GroundAdvantage'
+           
+             
             ]
             
             for attempt in range(10):
