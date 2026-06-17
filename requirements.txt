@@ -1,0 +1,5 @@
+hereflask
+requests
+selenium
+webdriver-manager
+gunicorn
