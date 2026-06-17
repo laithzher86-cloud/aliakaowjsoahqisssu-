@@ -431,7 +431,8 @@ def ff(ccx, site):
              'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
             'First', 
             'by-items', 
-            'Standard'
+            'Standard', 
+            'Priority'
            
              
             ]
