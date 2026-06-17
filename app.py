@@ -1,4 +1,4 @@
-
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
 import time
 import re
 import json
@@ -429,6 +429,9 @@ def ff(ccx, site):
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
              'Economy',
              'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'First', 
+            'by-items', 
+           
              
             ]
             
