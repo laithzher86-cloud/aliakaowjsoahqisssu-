@@ -123,13 +123,14 @@ def ff(ccx, site):
     order_number = None
     payment_status = None
     
-    # اختيار بروكسي عشوائي لهذا الطلب (فقط للـ requests)
-    proxy = get_random_proxy()
-    proxy_url = get_proxy_url(proxy)
-    proxies = {"http": proxy_url, "https": proxy_url}
-    
-    # ==================== 1. جلب رابط الدفع مع بروكسي ====================
+    # ==================== 1. جلب رابط الدفع مع بروكسي عشوائي ====================
     try:
+        # اختيار بروكسي عشوائي
+        proxy = get_random_proxy()
+        proxy_url = get_proxy_url(proxy)
+        proxies = {"http": proxy_url, "https": proxy_url}
+        
+        # توليد User-Agent عشوائي
         user_agent = get_random_user_agent()
         
         s = requests.Session()
@@ -151,6 +152,7 @@ def ff(ccx, site):
                 pass
             if attempt < 2:
                 time.sleep(1)
+                # تغيير البروكسي في حالة الفشل
                 proxy = get_random_proxy()
                 proxy_url = get_proxy_url(proxy)
                 proxies = {"http": proxy_url, "https": proxy_url}
@@ -232,7 +234,7 @@ def ff(ccx, site):
     except Exception as e:
         return {"success": False, "code": None, "error": str(e)}
     
-    # ==================== 2. تشغيل المتصفح (بدون بروكسي) ====================
+    # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
         chrome_options = Options()
@@ -247,13 +249,7 @@ def ff(ccx, site):
         chrome_options.add_argument('--disable-popup-blocking')
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-notifications')
-        chrome_options.add_argument('--ignore-certificate-errors')
-        chrome_options.add_argument('--allow-running-insecure-content')
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_argument('--disable-extensions')
-        chrome_options.add_argument('--disable-plugins')
-        chrome_options.add_argument('--disable-images')
-        chrome_options.add_argument('--blink-settings=imagesEnabled=false')
+        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
         
         driver = webdriver.Chrome(options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -537,8 +533,7 @@ def ff(ccx, site):
                 'Priority', 
                 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
                 'GroundAdvantage', 
-                'MediaMail', 
-                'BUYER_IDENTITY_PRESENTMENT_CURRENCY_DOES_NOT_MATCH'
+                'MediaMail'
             ]
             
             for attempt in range(10):
