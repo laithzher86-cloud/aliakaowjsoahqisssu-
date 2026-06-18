@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة وإعادة المحاولة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات المتغيرة
 import time
 import re
 import json
@@ -17,18 +17,71 @@ import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import random
+from fake_useragent import UserAgent
 
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 50
 REQUEST_TIMEOUT = 60
-MAX_RETRIES = 10
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# ==================== قائمة البروكسيات ====================
+PROXY_LIST = [
+    {"user": "207273", "pass": "YXn4KChV", "ip": "192.144.26.139", "port": "8800"},
+    {"user": "207273", "pass": "YXn4KChV", "ip": "177.234.142.34", "port": "8800"},
+    {"user": "207273", "pass": "YXn4KChV", "ip": "192.144.26.7", "port": "8800"},
+    {"user": "207273", "pass": "YXn4KChV", "ip": "192.144.26.182", "port": "8800"},
+    {"user": "207273", "pass": "YXn4KChV", "ip": "177.234.142.110", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.188", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.189", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.226", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.233", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.229", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.236", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.252", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.208", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.214", "port": "8800"},
+    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.225", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.4", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.196", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.245", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.197", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.43", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.2", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.1", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.244", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.54", "port": "8800"},
+    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.242", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.13", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.223", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.193", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.51", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.205", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.139", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.142", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.234", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.18", "port": "8800"},
+    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.116", "port": "8800"},
+]
+
+def get_random_proxy():
+    """اختيار بروكسي عشوائي من القائمة"""
+    return random.choice(PROXY_LIST)
+
+def get_random_user_agent():
+    """توليد User-Agent عشوائي"""
+    ua = UserAgent()
+    return ua.random
+
+def get_proxy_url(proxy):
+    """تحويل البروكسي إلى صيغة URL"""
+    return f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
 
 def ff(ccx, site):
     """
@@ -70,15 +123,18 @@ def ff(ccx, site):
     order_number = None
     payment_status = None
     
-    # ==================== 1. جلب رابط الدفع مع إعادة المحاولة ====================
+    # ==================== 1. جلب رابط الدفع مع بروكسي عشوائي ====================
     try:
-        proxy = "px440401.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
-        ip, port, user, pwd = proxy.split(":")
-        proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
+        # اختيار بروكسي عشوائي
+        proxy = get_random_proxy()
+        proxy_url = get_proxy_url(proxy)
         proxies = {"http": proxy_url, "https": proxy_url}
         
+        # توليد User-Agent عشوائي
+        user_agent = get_random_user_agent()
+        
         s = requests.Session()
-        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        s.headers.update({'User-Agent': user_agent})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -87,17 +143,19 @@ def ff(ccx, site):
         ]
         
         r = None
-        for attempt in range(MAX_RETRIES):
+        for attempt in range(3):
             try:
-                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=100)
+                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
                 if r.status_code == 200:
                     break
-                logger.warning(f"⚠️ محاولة جلب المنتجات {attempt + 1}/{MAX_RETRIES} فشلت - Status: {r.status_code}")
-            except Exception as e:
-                logger.warning(f"⚠️ محاولة جلب المنتجات {attempt + 1}/{MAX_RETRIES} فشلت: {str(e)}")
-            
-            if attempt < MAX_RETRIES - 1:
+            except:
+                pass
+            if attempt < 2:
                 time.sleep(1)
+                # تغيير البروكسي في حالة الفشل
+                proxy = get_random_proxy()
+                proxy_url = get_proxy_url(proxy)
+                proxies = {"http": proxy_url, "https": proxy_url}
         
         if r is None or r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products after 3 attempts"}
@@ -138,29 +196,35 @@ def ff(ccx, site):
         total_amount = f"${cheapest['price']:.2f}"
         
         resp = None
-        for attempt in range(MAX_RETRIES):
+        for attempt in range(3):
             try:
                 resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
                 if resp.status_code == 200:
                     break
             except:
                 pass
-            if attempt < MAX_RETRIES - 1:
+            if attempt < 2:
                 time.sleep(1)
+                proxy = get_random_proxy()
+                proxy_url = get_proxy_url(proxy)
+                proxies = {"http": proxy_url, "https": proxy_url}
         
         if resp is None or resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart after 3 attempts"}
         
         response = None
-        for attempt in range(MAX_RETRIES):
+        for attempt in range(3):
             try:
                 response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
                 if response.status_code == 200:
                     break
             except:
                 pass
-            if attempt < MAX_RETRIES - 1:
+            if attempt < 2:
                 time.sleep(1)
+                proxy = get_random_proxy()
+                proxy_url = get_proxy_url(proxy)
+                proxies = {"http": proxy_url, "https": proxy_url}
         
         if response is None or response.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to get checkout after 3 attempts"}
@@ -863,4 +927,3 @@ def health():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, threaded=True)
-
