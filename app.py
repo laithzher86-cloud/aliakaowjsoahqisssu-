@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات المتغيرة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات المتغيرة وإعادة المحاولة
 import time
 import re
 import json
@@ -25,6 +25,7 @@ app = Flask(__name__)
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 50
 REQUEST_TIMEOUT = 60
+MAX_RETRIES = 3
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
@@ -123,7 +124,7 @@ def ff(ccx, site):
     order_number = None
     payment_status = None
     
-    # ==================== 1. جلب رابط الدفع مع بروكسي عشوائي ====================
+    # ==================== 1. جلب رابط الدفع مع بروكسي ====================
     try:
         # اختيار بروكسي عشوائي
         proxy = get_random_proxy()
@@ -143,16 +144,15 @@ def ff(ccx, site):
         ]
         
         r = None
-        for attempt in range(3):
+        for attempt in range(MAX_RETRIES):
             try:
                 r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
                 if r.status_code == 200:
                     break
             except:
                 pass
-            if attempt < 2:
+            if attempt < MAX_RETRIES - 1:
                 time.sleep(1)
-                # تغيير البروكسي في حالة الفشل
                 proxy = get_random_proxy()
                 proxy_url = get_proxy_url(proxy)
                 proxies = {"http": proxy_url, "https": proxy_url}
@@ -196,14 +196,14 @@ def ff(ccx, site):
         total_amount = f"${cheapest['price']:.2f}"
         
         resp = None
-        for attempt in range(3):
+        for attempt in range(MAX_RETRIES):
             try:
                 resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
                 if resp.status_code == 200:
                     break
             except:
                 pass
-            if attempt < 2:
+            if attempt < MAX_RETRIES - 1:
                 time.sleep(1)
                 proxy = get_random_proxy()
                 proxy_url = get_proxy_url(proxy)
@@ -213,14 +213,14 @@ def ff(ccx, site):
             return {"success": False, "code": None, "error": "Failed to add to cart after 3 attempts"}
         
         response = None
-        for attempt in range(3):
+        for attempt in range(MAX_RETRIES):
             try:
                 response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
                 if response.status_code == 200:
                     break
             except:
                 pass
-            if attempt < 2:
+            if attempt < MAX_RETRIES - 1:
                 time.sleep(1)
                 proxy = get_random_proxy()
                 proxy_url = get_proxy_url(proxy)
