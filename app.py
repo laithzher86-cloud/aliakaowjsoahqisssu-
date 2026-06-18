@@ -38,15 +38,14 @@ MAX_DRIVERS = 25
 DRIVER_LAST_USED = {}
 
 # ==================== إعدادات توفير الذاكرة ====================
-MEMORY_LIMIT = 85  # نسبة الذاكرة المسموح بها
-CLEANUP_INTERVAL = 50  # عدد الطلبات قبل التنظيف
+MEMORY_LIMIT = 85
+CLEANUP_INTERVAL = 50
 REQUEST_COUNT = 0
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 def check_memory():
-    """التحقق من استخدام الذاكرة"""
     try:
         memory = psutil.virtual_memory()
         if memory.percent > MEMORY_LIMIT:
@@ -59,7 +58,6 @@ def check_memory():
     return False
 
 def cleanup_drivers():
-    """تنظيف المتصفحات غير المستخدمة"""
     with POOL_LOCK:
         to_remove = []
         current_time = time.time()
@@ -79,12 +77,30 @@ def cleanup_drivers():
         logger.info(f"🧹 تم تنظيف {len(to_remove)} متصفحات")
         gc.collect()
 
+def get_chrome_version():
+    """الحصول على إصدار Chrome/Chromium"""
+    try:
+        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
+        version = re.search(r'(\d+)\.', result.stdout)
+        if version:
+            return int(version.group(1))
+    except:
+        pass
+    
+    try:
+        result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
+        version = re.search(r'(\d+)\.', result.stdout)
+        if version:
+            return int(version.group(1))
+    except:
+        pass
+    
+    return 149
+
 def get_driver_from_pool():
-    """الحصول على متصفح من المجمع أو إنشاء جديد"""
     global REQUEST_COUNT
     REQUEST_COUNT += 1
     
-    # تنظيف دوري
     if REQUEST_COUNT % CLEANUP_INTERVAL == 0:
         cleanup_drivers()
         check_memory()
@@ -108,25 +124,17 @@ def get_driver_from_pool():
         return get_driver_from_pool()
 
 def create_driver():
-    """إنشاء متصفح جديد مع إعدادات السرعة القصوى وتوفير الذاكرة"""
+    """إنشاء متصفح جديد مع إصدار متوافق"""
     chrome_options = Options()
     
-    # وضع خفي
     chrome_options.add_argument('--headless')
-    
-    # أمان واستقرار
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-gpu')
-    
-    # توفير الذاكرة
     chrome_options.add_argument('--disable-images')
     chrome_options.add_argument('--blink-settings=imagesEnabled=false')
     chrome_options.add_argument('--disable-extensions')
     chrome_options.add_argument('--disable-plugins')
-    chrome_options.add_argument('--disable-javascript')
-    
-    # تعطيل الميزات غير الضرورية
     chrome_options.add_argument('--disable-background-networking')
     chrome_options.add_argument('--disable-sync')
     chrome_options.add_argument('--disable-default-apps')
@@ -144,8 +152,6 @@ def create_driver():
     chrome_options.add_argument('--disable-renderer-backgrounding')
     chrome_options.add_argument('--disable-field-trial-config')
     chrome_options.add_argument('--disable-ipc-flooding-protection')
-    
-    # تسريع الأداء
     chrome_options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
     chrome_options.add_argument('--disable-features=TranslateUI')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
@@ -155,12 +161,22 @@ def create_driver():
     chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
     chrome_options.add_argument('--disable-popup-blocking')
     chrome_options.add_argument('--disable-notifications')
-    
-    # إعدادات الذاكرة
     chrome_options.add_argument('--max_old_space_size=512')
     chrome_options.add_argument('--js-flags=--max_old_space_size=512')
     
-    service = Service(ChromeDriverManager().install())
+    # الحصول على إصدار Chrome
+    chrome_version = get_chrome_version()
+    logger.info(f"✅ إصدار Chrome: {chrome_version}")
+    
+    # استخدام ChromeDriverManager مع إصدار محدد
+    try:
+        service = Service(ChromeDriverManager(version=f"{chrome_version}.0.0.0").install())
+    except:
+        try:
+            service = Service(ChromeDriverManager().install())
+        except:
+            service = Service("/usr/bin/chromedriver")
+    
     driver = webdriver.Chrome(service=service, options=chrome_options)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     driver.set_page_load_timeout(10)
