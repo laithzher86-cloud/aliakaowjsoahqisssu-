@@ -18,10 +18,10 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+import chromedriver_autoinstaller
+import subprocess
 import gc
 import psutil
-import subprocess
 
 app = Flask(__name__)
 
@@ -44,6 +44,18 @@ REQUEST_COUNT = 0
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# ==================== تثبيت ChromeDriver تلقائياً ====================
+try:
+    chromedriver_autoinstaller.install()
+    logger.info("✅ تم تثبيت ChromeDriver تلقائياً")
+except:
+    logger.warning("⚠️ فشل تثبيت ChromeDriver تلقائياً، جاري المحاولة مرة أخرى...")
+    try:
+        chromedriver_autoinstaller.install(cwd=True)
+        logger.info("✅ تم تثبيت ChromeDriver في المسار الحالي")
+    except:
+        logger.error("❌ فشل تثبيت ChromeDriver")
 
 def check_memory():
     try:
@@ -77,26 +89,6 @@ def cleanup_drivers():
         logger.info(f"🧹 تم تنظيف {len(to_remove)} متصفحات")
         gc.collect()
 
-def get_chrome_version():
-    """الحصول على إصدار Chrome/Chromium"""
-    try:
-        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
-        version = re.search(r'(\d+)\.', result.stdout)
-        if version:
-            return int(version.group(1))
-    except:
-        pass
-    
-    try:
-        result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
-        version = re.search(r'(\d+)\.', result.stdout)
-        if version:
-            return int(version.group(1))
-    except:
-        pass
-    
-    return 149
-
 def get_driver_from_pool():
     global REQUEST_COUNT
     REQUEST_COUNT += 1
@@ -124,7 +116,7 @@ def get_driver_from_pool():
         return get_driver_from_pool()
 
 def create_driver():
-    """إنشاء متصفح جديد مع إصدار متوافق"""
+    """إنشاء متصفح جديد مع ChromeDriver متوافق"""
     chrome_options = Options()
     
     chrome_options.add_argument('--headless')
@@ -164,16 +156,13 @@ def create_driver():
     chrome_options.add_argument('--max_old_space_size=512')
     chrome_options.add_argument('--js-flags=--max_old_space_size=512')
     
-    # الحصول على إصدار Chrome
-    chrome_version = get_chrome_version()
-    logger.info(f"✅ إصدار Chrome: {chrome_version}")
-    
-    # استخدام ChromeDriverManager مع إصدار محدد
+    # استخدام chromedriver_autoinstaller لتثبيت الإصدار المناسب
     try:
-        service = Service(ChromeDriverManager(version=f"{chrome_version}.0.0.0").install())
+        chromedriver_autoinstaller.install()
+        service = Service()
     except:
         try:
-            service = Service(ChromeDriverManager().install())
+            service = Service("/usr/local/bin/chromedriver")
         except:
             service = Service("/usr/bin/chromedriver")
     
