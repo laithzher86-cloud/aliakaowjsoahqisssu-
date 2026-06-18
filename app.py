@@ -19,7 +19,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from selenium.webdriver.chrome.service import Service
 import chromedriver_autoinstaller
-import subprocess
 import gc
 import psutil
 
@@ -50,12 +49,7 @@ try:
     chromedriver_autoinstaller.install()
     logger.info("✅ تم تثبيت ChromeDriver تلقائياً")
 except:
-    logger.warning("⚠️ فشل تثبيت ChromeDriver تلقائياً، جاري المحاولة مرة أخرى...")
-    try:
-        chromedriver_autoinstaller.install(cwd=True)
-        logger.info("✅ تم تثبيت ChromeDriver في المسار الحالي")
-    except:
-        logger.error("❌ فشل تثبيت ChromeDriver")
+    logger.warning("⚠️ فشل تثبيت ChromeDriver تلقائياً")
 
 def check_memory():
     try:
@@ -156,9 +150,7 @@ def create_driver():
     chrome_options.add_argument('--max_old_space_size=512')
     chrome_options.add_argument('--js-flags=--max_old_space_size=512')
     
-    # استخدام chromedriver_autoinstaller لتثبيت الإصدار المناسب
     try:
-        chromedriver_autoinstaller.install()
         service = Service()
     except:
         try:
@@ -426,12 +418,11 @@ def ff(ccx, site):
         except:
             return {"success": False, "code": None, "error": "Payment error"}
         
-        # ==================== 5. اعتراض GraphQL ====================
+        # ==================== 5. اعتراض GraphQL (بدون performance logs) ====================
         try:
             script = """
             window.graphqlResponses = [];
             window.allResponses = [];
-            window.pageUrls = [];
             
             var originalFetch = window.fetch;
             window.fetch = function(url, options) {
@@ -477,12 +468,6 @@ def ff(ccx, site):
                     } catch(e) {}
                 });
                 return originalXHRSend.apply(this, arguments);
-            };
-            
-            var originalPushState = history.pushState;
-            history.pushState = function(state, title, url) {
-                window.pageUrls.push(url);
-                return originalPushState.apply(this, arguments);
             };
             """
             driver.execute_script(script)
@@ -535,7 +520,6 @@ def ff(ccx, site):
             is_3ds = False
             order_confirmed = False
             order_number = None
-            payment_status = None
             
             excluded_codes = [
                 'REQUIRED_ARTIFACTS_UNAVAILABLE',
@@ -569,8 +553,6 @@ def ff(ccx, site):
                 responses = driver.execute_script("return window.allResponses || [];")
                 current_url = driver.current_url
                 final_url = current_url
-                
-                page_urls = driver.execute_script("return window.pageUrls || [];")
                 
                 if '/thank_you' in current_url:
                     order_confirmed = True
@@ -606,11 +588,6 @@ def ff(ccx, site):
                         if order_match:
                             order_number = order_match.group(1)
                         break
-                    
-                    order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                    if order_match:
-                        order_number = order_match.group(1)
-                        
                 except:
                     pass
                 
@@ -769,65 +746,6 @@ def ff(ccx, site):
                     break
                 
                 final_url = driver.current_url
-            
-            if not found_code and not all_codes and not order_confirmed:
-                logs = driver.get_log('performance')
-                for log in logs:
-                    try:
-                        message = json.loads(log['message'])
-                        if message.get('message', {}).get('method') == 'Network.responseReceived':
-                            url = message.get('message', {}).get('params', {}).get('response', {}).get('url', '')
-                            if '/persisted' in url and 'graphql' in url:
-                                request_id = message.get('message', {}).get('params', {}).get('requestId')
-                                if request_id:
-                                    try:
-                                        response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
-                                        body = response.get('body', '')
-                                        if body:
-                                            if 'CompletePaymentChallenge' in body:
-                                                try:
-                                                    data = json.loads(body)
-                                                    if 'data' in data and 'receipt' in data['data']:
-                                                        receipt = data['data']['receipt']
-                                                        if 'action' in receipt:
-                                                            action = receipt['action']
-                                                            if action.get('__typename') == 'CompletePaymentChallenge':
-                                                                is_3ds = True
-                                                                found_code = '3DS_REQUIRED'
-                                                                found_typename = 'CompletePaymentChallenge'
-                                                                response_result = '3DS Secure required - Please complete authentication'
-                                                                break
-                                                except:
-                                                    pass
-                                            if not found_code:
-                                                pattern = r'"code"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for code in matches:
-                                                    if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                                        is_excluded = False
-                                                        for excluded in excluded_codes:
-                                                            if excluded in code:
-                                                                is_excluded = True
-                                                                break
-                                                        if not is_excluded and code not in all_codes:
-                                                            all_codes.append(code)
-                                            if '__typename' in body:
-                                                pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for typename in matches:
-                                                    if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
-                                                            if typename not in all_typenames:
-                                                                all_typenames.append(typename)
-                                    except:
-                                        pass
-                    except:
-                        continue
-            
-            try:
-                final_url = driver.current_url
-            except:
-                pass
             
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
