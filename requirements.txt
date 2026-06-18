@@ -7,3 +7,4 @@ webdriver-manager
 gunicorn
 psutil
 chromedriver_autoinstaller
+fake-useragent
