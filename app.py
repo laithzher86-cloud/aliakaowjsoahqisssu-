@@ -533,7 +533,8 @@ def ff(ccx, site):
                 'Priority', 
                 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
                 'GroundAdvantage', 
-                'MediaMail'
+                'MediaMail', 
+                'BUYER_IDENTITY_PRESENTMENT_CURRENCY_DOES_NOT_MATCH'
             ]
             
             for attempt in range(10):
