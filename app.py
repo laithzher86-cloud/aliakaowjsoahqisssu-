@@ -23,7 +23,7 @@ app = Flask(__name__)
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 50
 REQUEST_TIMEOUT = 60
-MAX_RETRIES = 3
+MAX_RETRIES = 10
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
@@ -89,7 +89,7 @@ def ff(ccx, site):
         r = None
         for attempt in range(MAX_RETRIES):
             try:
-                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=100)
                 if r.status_code == 200:
                     break
                 logger.warning(f"⚠️ محاولة جلب المنتجات {attempt + 1}/{MAX_RETRIES} فشلت - Status: {r.status_code}")
@@ -97,7 +97,7 @@ def ff(ccx, site):
                 logger.warning(f"⚠️ محاولة جلب المنتجات {attempt + 1}/{MAX_RETRIES} فشلت: {str(e)}")
             
             if attempt < MAX_RETRIES - 1:
-                time.sleep(2)
+                time.sleep(1)
         
         if r is None or r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products after 3 attempts"}
@@ -146,7 +146,7 @@ def ff(ccx, site):
             except:
                 pass
             if attempt < MAX_RETRIES - 1:
-                time.sleep(2)
+                time.sleep(1)
         
         if resp is None or resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart after 3 attempts"}
@@ -160,7 +160,7 @@ def ff(ccx, site):
             except:
                 pass
             if attempt < MAX_RETRIES - 1:
-                time.sleep(2)
+                time.sleep(1)
         
         if response is None or response.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to get checkout after 3 attempts"}
@@ -863,3 +863,4 @@ def health():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, threaded=True)
+
