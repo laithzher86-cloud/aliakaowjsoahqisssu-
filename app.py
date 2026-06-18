@@ -4,7 +4,7 @@ import re
 import json
 import requests
 from urllib.parse import urljoin
-from seleniumwire import webdriver
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
@@ -83,17 +83,6 @@ def get_proxy_url(proxy):
     """تحويل البروكسي إلى صيغة URL"""
     return f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
 
-def get_seleniumwire_options(proxy):
-    """إعدادات Selenium Wire مع البروكسي"""
-    proxy_url = get_proxy_url(proxy)
-    return {
-        "proxy": {
-            "http": proxy_url,
-            "https": proxy_url,
-            "no_proxy": "localhost,127.0.0.1"
-        }
-    }
-
 def ff(ccx, site):
     """
     ccx: رقم البطاقة|الشهر|السنة|cvv
@@ -134,7 +123,7 @@ def ff(ccx, site):
     order_number = None
     payment_status = None
     
-    # اختيار بروكسي عشوائي لهذا الطلب
+    # اختيار بروكسي عشوائي لهذا الطلب (فقط للـ requests)
     proxy = get_random_proxy()
     proxy_url = get_proxy_url(proxy)
     proxies = {"http": proxy_url, "https": proxy_url}
@@ -243,7 +232,7 @@ def ff(ccx, site):
     except Exception as e:
         return {"success": False, "code": None, "error": str(e)}
     
-    # ==================== 2. تشغيل المتصفح مع Selenium Wire وبروكسي ====================
+    # ==================== 2. تشغيل المتصفح (بدون بروكسي) ====================
     driver = None
     try:
         chrome_options = Options()
@@ -260,15 +249,13 @@ def ff(ccx, site):
         chrome_options.add_argument('--disable-notifications')
         chrome_options.add_argument('--ignore-certificate-errors')
         chrome_options.add_argument('--allow-running-insecure-content')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-images')
+        chrome_options.add_argument('--blink-settings=imagesEnabled=false')
         
-        # اختيار بروكسي للمتصفح
-        proxy_for_selenium = get_random_proxy()
-        seleniumwire_options = get_seleniumwire_options(proxy_for_selenium)
-        
-        driver = webdriver.Chrome(
-            options=chrome_options,
-            seleniumwire_options=seleniumwire_options
-        )
+        driver = webdriver.Chrome(options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         wait = WebDriverWait(driver, 15)
         driver.set_page_load_timeout(25)
@@ -550,7 +537,8 @@ def ff(ccx, site):
                 'Priority', 
                 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
                 'GroundAdvantage', 
-                'MediaMail'
+                'MediaMail', 
+                'BUYER_IDENTITY_PRESENTMENT_CURRENCY_DOES_NOT_MATCH'
             ]
             
             for attempt in range(10):
