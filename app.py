@@ -434,7 +434,8 @@ def ff(ccx, site):
             'Standard', 
             'Priority', 
             'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'GroundAdvantage'
+            'GroundAdvantage', 
+            'MediaMail'
            
              
             ]
@@ -465,7 +466,7 @@ def ff(ccx, site):
                         response_result = 'Order confirmed - Thank you for your purchase!'
                         break
                     
-                    if 'Your order is confirmed' in page_source or 'Order confirmed' in page_source:
+                    if 'Your order is confirmed' in page_source or 'Thank you for your purchase!' in page_source:
                         order_confirmed = True
                         found_code = 'ORDER_CONFIRMED'
                         response_result = 'Order confirmed - Thank you for your purchase!'
