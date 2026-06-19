@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات المتغيرة وإعادة المحاولة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات المتغيرة
 import time
 import re
 import json
@@ -72,23 +72,16 @@ PROXY_LIST = [
 ]
 
 def get_random_proxy():
-    """اختيار بروكسي عشوائي من القائمة"""
     return random.choice(PROXY_LIST)
 
 def get_random_user_agent():
-    """توليد User-Agent عشوائي"""
     ua = UserAgent()
     return ua.random
 
 def get_proxy_url(proxy):
-    """تحويل البروكسي إلى صيغة URL"""
     return f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
 
 def ff(ccx, site):
-    """
-    ccx: رقم البطاقة|الشهر|السنة|cvv
-    site: رابط الموقع
-    """
     
     shipping_data = {
         "email": "jbyyt@hi2.in",
@@ -124,14 +117,12 @@ def ff(ccx, site):
     order_number = None
     payment_status = None
     
-    # ==================== 1. جلب رابط الدفع مع بروكسي ====================
+    # ==================== 1. جلب رابط الدفع ====================
     try:
-        # اختيار بروكسي عشوائي
         proxy = get_random_proxy()
         proxy_url = get_proxy_url(proxy)
         proxies = {"http": proxy_url, "https": proxy_url}
         
-        # توليد User-Agent عشوائي
         user_agent = get_random_user_agent()
         
         s = requests.Session()
@@ -158,7 +149,7 @@ def ff(ccx, site):
                 proxies = {"http": proxy_url, "https": proxy_url}
         
         if r is None or r.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to fetch products after 3 attempts"}
+            return {"success": False, "code": None, "error": "Failed to fetch products"}
         
         products_data = r.json()
         shippable_products = []
@@ -210,7 +201,7 @@ def ff(ccx, site):
                 proxies = {"http": proxy_url, "https": proxy_url}
         
         if resp is None or resp.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to add to cart after 3 attempts"}
+            return {"success": False, "code": None, "error": "Failed to add to cart"}
         
         response = None
         for attempt in range(MAX_RETRIES):
@@ -227,7 +218,7 @@ def ff(ccx, site):
                 proxies = {"http": proxy_url, "https": proxy_url}
         
         if response is None or response.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to get checkout after 3 attempts"}
+            return {"success": False, "code": None, "error": "Failed to get checkout"}
         
         checkout_url = response.url
         
