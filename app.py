@@ -597,7 +597,15 @@ def ff(ccx, site):
                 'Priority', 
                 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
                 'GroundAdvantage', 
-                'MediaMail'
+                'MediaMail', 
+                'CAMP', 
+            'Flat', 
+                'Shipping', 
+                'fedex_ground_economy', 
+                'PrivacyBannerSettingsBulletPoints', 
+                'Express', 
+                'UiExtension', 
+                
             ]
             
             for attempt in range(10):
