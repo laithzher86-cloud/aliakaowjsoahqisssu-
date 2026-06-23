@@ -19,6 +19,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
 from fake_useragent import UserAgent
+from faker import Faker
+
+# تهيئة Faker مع دعم اللغة الإنجليزية للحصول على بيانات متنوعة
+fake = Faker('en_US')
 
 app = Flask(__name__)
 
@@ -71,6 +75,83 @@ PROXY_LIST = [
     {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.116", "port": "8800"},
 ]
 
+# ==================== قائمة الأسماء والألقاب والمدن والشوارع للتبديل ====================
+FIRST_NAMES = ['James', 'Mary', 'John', 'Patricia', 'Robert', 'Jennifer', 'Michael', 'Linda', 'William', 'Elizabeth', 
+               'David', 'Barbara', 'Richard', 'Susan', 'Joseph', 'Jessica', 'Thomas', 'Sarah', 'Charles', 'Karen',
+               'Anthony', 'Lisa', 'Matthew', 'Nancy', 'Daniel', 'Betty', 'Paul', 'Helen', 'Mark', 'Sandra',
+               'Donald', 'Donna', 'George', 'Carol', 'Kenneth', 'Ruth', 'Steven', 'Sharon', 'Edward', 'Michelle',
+               'Brian', 'Laura', 'Ronald', 'Kimberly', 'Kevin', 'Deborah', 'Jason', 'Emily', 'Jeffrey', 'Amanda']
+
+LAST_NAMES = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez',
+              'Hernandez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee',
+              'Perez', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson', 'Walker',
+              'Young', 'Allen', 'King', 'Wright', 'Scott', 'Torres', 'Nguyen', 'Hill', 'Flores', 'Green',
+              'Adams', 'Nelson', 'Baker', 'Hall', 'Rivera', 'Campbell', 'Mitchell', 'Carter', 'Roberts', 'Turner']
+
+CITIES_STATES = [
+    ('New York', 'NY'), ('Los Angeles', 'CA'), ('Chicago', 'IL'), ('Houston', 'TX'), ('Phoenix', 'AZ'),
+    ('Philadelphia', 'PA'), ('San Antonio', 'TX'), ('San Diego', 'CA'), ('Dallas', 'TX'), ('Austin', 'TX'),
+    ('Jacksonville', 'FL'), ('Fort Worth', 'TX'), ('Columbus', 'OH'), ('Charlotte', 'NC'), ('San Francisco', 'CA'),
+    ('Indianapolis', 'IN'), ('Seattle', 'WA'), ('Denver', 'CO'), ('Washington', 'DC'), ('Boston', 'MA'),
+    ('El Paso', 'TX'), ('Detroit', 'MI'), ('Nashville', 'TN'), ('Portland', 'OR'), ('Oklahoma City', 'OK'),
+    ('Las Vegas', 'NV'), ('Baltimore', 'MD'), ('Louisville', 'KY'), ('Milwaukee', 'WI'), ('Albuquerque', 'NM'),
+    ('Tucson', 'AZ'), ('Miami', 'FL'), ('Raleigh', 'NC'), ('Omaha', 'NE'), ('Cleveland', 'OH'),
+    ('Tulsa', 'OK'), ('Oakland', 'CA'), ('Minneapolis', 'MN'), ('Wichita', 'KS'), ('Arlington', 'TX'),
+    ('Bakersfield', 'CA'), ('New Orleans', 'LA'), ('Honolulu', 'HI'), ('Anaheim', 'CA'), ('Tampa', 'FL'),
+    ('Aurora', 'CO'), ('Santa Ana', 'CA'), ('St. Louis', 'MO'), ('Riverside', 'CA'), ('Corpus Christi', 'TX')
+]
+
+STREET_NAMES = ['Main St', 'Oak Ave', 'Maple Dr', 'Cedar Ln', 'Elm St', 'Washington Ave', 'Park Ave', 'Lake Dr',
+                'Hill St', 'Pine St', 'Church St', 'Market St', 'Bridge St', 'River St', 'Forest Ave',
+                'Valley Rd', 'Mountain Ave', 'Sunset Blvd', 'Highland Ave', 'Grove St', 'Willow Dr', 'Magnolia Blvd',
+                'Hollywood Blvd', 'Broadway', 'Michigan Ave', 'Pennsylvania Ave', 'Independence Ave', 'Constitution Ave']
+
+EMAIL_DOMAINS = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'protonmail.com', 'mail.com', 'aol.com',
+                 'icloud.com', 'yandex.com', 'zoho.com', 'fastmail.com', 'tutanota.com']
+
+def generate_fake_shipping_data():
+    """توليد بيانات شحن وهمية متغيرة لكل محاولة"""
+    first_name = random.choice(FIRST_NAMES)
+    last_name = random.choice(LAST_NAMES)
+    full_name = f"{first_name} {last_name}"
+    
+    city, state = random.choice(CITIES_STATES)
+    
+    street_num = random.randint(100, 9999)
+    street = random.choice(STREET_NAMES)
+    address1 = f"{street_num} {street}"
+    
+    # توليد رمز بريدي عشوائي
+    zip_codes = ['10001', '10002', '10003', '10004', '10005', '10006', '10007', '10008', '10009', '10010',
+                 '90001', '90002', '90003', '90004', '90005', '90006', '90007', '90008', '90009', '90010',
+                 '60601', '60602', '60603', '60604', '60605', '60606', '60607', '60608', '60609', '60610',
+                 '77001', '77002', '77003', '77004', '77005', '77006', '77007', '77008', '77009', '77010',
+                 '85001', '85002', '85003', '85004', '85005', '85006', '85007', '85008', '85009', '85010']
+    zip_code = random.choice(zip_codes)
+    
+    # توليد رقم هاتف عشوائي بصيغة أمريكية
+    area_code = random.randint(200, 999)
+    prefix = random.randint(200, 999)
+    line = random.randint(1000, 9999)
+    phone = f"{area_code}{prefix}{line}"
+    
+    # توليد بريد إلكتروني عشوائي
+    email_domain = random.choice(EMAIL_DOMAINS)
+    email_username = f"{first_name.lower()}{last_name.lower()}{random.randint(1, 999)}"
+    email = f"{email_username}@{email_domain}"
+    
+    return {
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+        "full_name": full_name,
+        "address1": address1,
+        "city": city,
+        "state": state,
+        "zip": zip_code,
+        "phone": phone
+    }
+
 def get_random_proxy():
     return random.choice(PROXY_LIST)
 
@@ -83,16 +164,8 @@ def get_proxy_url(proxy):
 
 def ff(ccx, site):
     
-    shipping_data = {
-        "email": "jbyyt@hi2.in",
-        "first_name": "Lawrence",
-        "last_name": "Barnett",
-        "address1": "new york",
-        "city": "New York",
-        "state": "New York",
-        "zip": "10080",
-        "phone": "2012583991"
-    }
+    # ==================== توليد بيانات شحن وهمية متغيرة ====================
+    shipping_data = generate_fake_shipping_data()
     
     parts = ccx.split('|')
     if len(parts) != 4:
@@ -102,7 +175,7 @@ def ff(ccx, site):
         "number": parts[0].strip(),
         "expiry": f"{parts[1].strip()}/{parts[2].strip()[-2:]}",
         "cvv": parts[3].strip(),
-        "name": "Lawrence Barnett"
+        "name": shipping_data["full_name"]  # استخدام الاسم الوهمي للبطاقة
     }
     
     found_code = None
@@ -250,7 +323,7 @@ def ff(ccx, site):
         driver.get(checkout_url)
         time.sleep(2)
         
-        # ==================== 3. تعبئة الشحن ====================
+        # ==================== 3. تعبئة الشحن ببيانات وهمية ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             email_field.clear()
