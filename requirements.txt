@@ -8,3 +8,4 @@ gunicorn
 psutil
 chromedriver_autoinstaller
 fake-useragent
+faker
