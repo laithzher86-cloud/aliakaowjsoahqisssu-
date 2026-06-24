@@ -1020,4 +1020,47 @@ def ff(ccx, site):
                 "error": str(e)
             }
     
-    except Exc
+    except Exception as e:
+        if driver:
+            driver.quit()
+        return {
+            "success": False,
+            "code": None,
+            "typename": None,
+            "response": None,
+            "price": total_amount,
+            "order_number": None,
+            "checkout_url": checkout_url,
+            "final_url": None,
+            "error": str(e)
+        }
+
+# ==================== Routes ====================
+@app.route('/', methods=['GET'])
+def home():
+    cc = request.args.get('cc')
+    url = request.args.get('url')
+    
+    if not cc or not url:
+        return jsonify({
+            "success": False,
+            "code": None,
+            "typename": None,
+            "response": None,
+            "price": None,
+            "order_number": None,
+            "checkout_url": None,
+            "final_url": None,
+            "error": "Missing cc or url parameters"
+        })
+    
+    result = ff(cc, url)
+    return jsonify(result)
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"})
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, threaded=True)
