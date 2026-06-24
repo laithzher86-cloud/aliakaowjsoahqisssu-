@@ -121,7 +121,6 @@ def generate_fake_shipping_data():
     street = random.choice(STREET_NAMES)
     address1 = f"{street_num} {street}"
     
-    # توليد رمز بريدي عشوائي
     zip_codes = ['10001', '10002', '10003', '10004', '10005', '10006', '10007', '10008', '10009', '10010',
                  '90001', '90002', '90003', '90004', '90005', '90006', '90007', '90008', '90009', '90010',
                  '60601', '60602', '60603', '60604', '60605', '60606', '60607', '60608', '60609', '60610',
@@ -129,13 +128,11 @@ def generate_fake_shipping_data():
                  '85001', '85002', '85003', '85004', '85005', '85006', '85007', '85008', '85009', '85010']
     zip_code = random.choice(zip_codes)
     
-    # توليد رقم هاتف عشوائي بصيغة أمريكية
     area_code = random.randint(200, 999)
     prefix = random.randint(200, 999)
     line = random.randint(1000, 9999)
     phone = f"{area_code}{prefix}{line}"
     
-    # توليد بريد إلكتروني عشوائي
     email_domain = random.choice(EMAIL_DOMAINS)
     email_username = f"{first_name.lower()}{last_name.lower()}{random.randint(1, 999)}"
     email = f"{email_username}@{email_domain}"
@@ -169,7 +166,6 @@ def extract_best_code(all_codes, all_typenames, excluded_codes):
     2. إذا لم يوجد، نأخذ أي كود صالح
     3. إذا لم يوجد كود، نأخذ __typename
     """
-    # فلترة الكودات المستبعدة
     valid_codes = []
     for code in all_codes:
         is_excluded = False
@@ -180,26 +176,20 @@ def extract_best_code(all_codes, all_typenames, excluded_codes):
         if not is_excluded:
             valid_codes.append(code)
     
-    # البحث عن كود يحتوي على _ (underscore)
     underscore_codes = [code for code in valid_codes if '_' in code]
     
     if underscore_codes:
-        # إعطاء الأولوية للكودات التي تبدأ بحروف كبيرة وتحتوي على _ (مثل CAPTCHA_REQUIRED)
-        # نرتبها بحيث الكودات الأكثر تطابقاً مع النمط المطلوب تأتي أولاً
         priority_codes = []
         for code in underscore_codes:
-            # التحقق من أن الكود يتبع نمط مثل ERROR_TYPE أو STATUS_CODE
             if re.match(r'^[A-Z][A-Z_]*[A-Z]$', code):
                 priority_codes.append(code)
             else:
                 priority_codes.append(code)
         return priority_codes[0] if priority_codes else underscore_codes[0]
     
-    # إذا لم نجد كود يحتوي على _، نأخذ أول كود صالح
     if valid_codes:
         return valid_codes[0]
     
-    # إذا لم نجد أي كود، نأخذ أول __typename
     if all_typenames:
         return all_typenames[0]
     
@@ -207,7 +197,6 @@ def extract_best_code(all_codes, all_typenames, excluded_codes):
 
 def ff(ccx, site):
     
-    # ==================== توليد بيانات شحن وهمية متغيرة ====================
     shipping_data = generate_fake_shipping_data()
     
     parts = ccx.split('|')
@@ -218,7 +207,7 @@ def ff(ccx, site):
         "number": parts[0].strip(),
         "expiry": f"{parts[1].strip()}/{parts[2].strip()[-2:]}",
         "cvv": parts[3].strip(),
-        "name": shipping_data["full_name"]  # استخدام الاسم الوهمي للبطاقة
+        "name": shipping_data["full_name"]
     }
     
     found_code = None
@@ -231,7 +220,7 @@ def ff(ccx, site):
     checkout_url = None
     final_url = None
     order_number = None
-    payment_status = None
+    all_graphql_requests = []  # قائمة لتخزين جميع طلبات GraphQL
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
@@ -366,7 +355,7 @@ def ff(ccx, site):
         driver.get(checkout_url)
         time.sleep(2)
         
-        # ==================== 3. تعبئة الشحن ببيانات وهمية ====================
+        # ==================== 3. تعبئة الشحن ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             email_field.clear()
@@ -440,7 +429,6 @@ def ff(ccx, site):
                         data_field = input_elem.get_attribute('data-field') or ''
                         placeholder = input_elem.get_attribute('placeholder') or ''
                         autocomplete = input_elem.get_attribute('autocomplete') or ''
-                        input_id = input_elem.get_attribute('id') or ''
                         
                         if not card_filled and (data_field == 'number' or 'card number' in placeholder.lower() or autocomplete == 'cc-number'):
                             driver.execute_script("""
@@ -614,7 +602,6 @@ def ff(ccx, site):
             is_3ds = False
             order_confirmed = False
             order_number = None
-            payment_status = None
             
             excluded_codes = [
                 'REQUIRED_ARTIFACTS_UNAVAILABLE',
@@ -657,56 +644,29 @@ def ff(ccx, site):
                 current_url = driver.current_url
                 final_url = current_url
                 
-                page_urls = driver.execute_script("return window.pageUrls || [];")
-                
-                if '/thank_you' in current_url:
-                    order_confirmed = True
-                    found_code = 'ORDER_CONFIRMED'
-                    response_result = 'Order confirmed - Thank you for your purchase!'
-                    order_match = re.search(r'order_([A-Z0-9]+)', current_url, re.IGNORECASE)
-                    if order_match:
-                        order_number = order_match.group(1)
-                    break
-                
-                try:
-                    page_source = driver.page_source
-                    if 'thank-you' in current_url or 'thank_you' in current_url:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if 'Your order is confirmed' in page_source or 'Thank you for your purchase!' in page_source:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if 'Thank you for your order' in page_source or 'thank you for your order' in page_source.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                    if order_match:
-                        order_number = order_match.group(1)
-                        
-                except:
-                    pass
-                
+                # استخراج جميع طلبات GraphQL من الردود
                 for resp in responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
                     
                     if not body:
                         continue
+                    
+                    # تخزين جميع طلبات /checkouts/internal/graphql/persisted
+                    if '/checkouts/internal/graphql/persisted' in url:
+                        try:
+                            json_data = json.loads(body)
+                            all_graphql_requests.append({
+                                'url': url,
+                                'body': json_data,
+                                'timestamp': resp.get('timestamp', '')
+                            })
+                        except:
+                            all_graphql_requests.append({
+                                'url': url,
+                                'body': body,
+                                'timestamp': resp.get('timestamp', '')
+                            })
                     
                     if '/thank_you' in body or 'thank_you' in url:
                         order_confirmed = True
@@ -852,60 +812,80 @@ def ff(ccx, site):
                             all_codes.append('INCORRECT_CVC')
                             response_result = 'INCORRECT_CVC'
                 
+                if '/thank_you' in current_url:
+                    order_confirmed = True
+                    found_code = 'ORDER_CONFIRMED'
+                    response_result = 'Order confirmed - Thank you for your purchase!'
+                    order_match = re.search(r'order_([A-Z0-9]+)', current_url, re.IGNORECASE)
+                    if order_match:
+                        order_number = order_match.group(1)
+                    break
+                
+                try:
+                    page_source = driver.page_source
+                    if 'thank-you' in current_url or 'thank_you' in current_url:
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        break
+                    
+                    if 'Your order is confirmed' in page_source or 'Thank you for your purchase!' in page_source:
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
+                        if order_match:
+                            order_number = order_match.group(1)
+                        break
+                    
+                    if 'Thank you for your order' in page_source or 'thank you for your order' in page_source.lower():
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
+                        if order_match:
+                            order_number = order_match.group(1)
+                        break
+                    
+                    order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
+                    if order_match:
+                        order_number = order_match.group(1)
+                        
+                except:
+                    pass
+                
                 if found_code or order_confirmed:
                     break
                 
                 final_url = driver.current_url
             
-            if not found_code and not all_codes and not order_confirmed:
+            if not all_graphql_requests:
                 logs = driver.get_log('performance')
                 for log in logs:
                     try:
                         message = json.loads(log['message'])
                         if message.get('message', {}).get('method') == 'Network.responseReceived':
                             url = message.get('message', {}).get('params', {}).get('response', {}).get('url', '')
-                            if '/persisted' in url and 'graphql' in url:
+                            if '/checkouts/internal/graphql/persisted' in url:
                                 request_id = message.get('message', {}).get('params', {}).get('requestId')
                                 if request_id:
                                     try:
                                         response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
                                         body = response.get('body', '')
                                         if body:
-                                            if 'CompletePaymentChallenge' in body:
-                                                try:
-                                                    data = json.loads(body)
-                                                    if 'data' in data and 'receipt' in data['data']:
-                                                        receipt = data['data']['receipt']
-                                                        if 'action' in receipt:
-                                                            action = receipt['action']
-                                                            if action.get('__typename') == 'CompletePaymentChallenge':
-                                                                is_3ds = True
-                                                                found_code = '3DS_REQUIRED'
-                                                                found_typename = 'CompletePaymentChallenge'
-                                                                response_result = '3DS Secure required - Please complete authentication'
-                                                                break
-                                                except:
-                                                    pass
-                                            if not found_code:
-                                                pattern = r'"code"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for code in matches:
-                                                    if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                                        is_excluded = False
-                                                        for excluded in excluded_codes:
-                                                            if excluded in code:
-                                                                is_excluded = True
-                                                                break
-                                                        if not is_excluded and code not in all_codes:
-                                                            all_codes.append(code)
-                                            if '__typename' in body:
-                                                pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for typename in matches:
-                                                    if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
-                                                            if typename not in all_typenames:
-                                                                all_typenames.append(typename)
+                                            try:
+                                                json_data = json.loads(body)
+                                                all_graphql_requests.append({
+                                                    'url': url,
+                                                    'body': json_data,
+                                                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+                                                })
+                                            except:
+                                                all_graphql_requests.append({
+                                                    'url': url,
+                                                    'body': body,
+                                                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+                                                })
                                     except:
                                         pass
                     except:
@@ -919,7 +899,6 @@ def ff(ccx, site):
             if driver:
                 driver.quit()
             
-            # ==================== استخراج أفضل كود باستخدام الدالة الجديدة ====================
             best_code = None
             
             if order_confirmed:
@@ -933,7 +912,6 @@ def ff(ccx, site):
                 best_code = '3DS_REQUIRED'
                 result_typename = found_typename or 'CompletePaymentChallenge'
             else:
-                # استخدام الدالة الجديدة لاستخراج أفضل كود
                 best_code = extract_best_code(all_codes, all_typenames, excluded_codes)
                 result_typename = found_typename or (all_typenames[0] if all_typenames else None)
             
@@ -947,6 +925,7 @@ def ff(ccx, site):
                     "order_number": order_number,
                     "checkout_url": checkout_url,
                     "final_url": final_url,
+                    "graphql_requests": all_graphql_requests,
                     "error": None
                 }
             else:
@@ -959,6 +938,7 @@ def ff(ccx, site):
                     "order_number": None,
                     "checkout_url": checkout_url,
                     "final_url": final_url,
+                    "graphql_requests": all_graphql_requests,
                     "error": "Code not found"
                 }
         
@@ -974,6 +954,7 @@ def ff(ccx, site):
                 "order_number": None,
                 "checkout_url": checkout_url,
                 "final_url": None,
+                "graphql_requests": all_graphql_requests,
                 "error": str(e)
             }
     
@@ -989,6 +970,7 @@ def ff(ccx, site):
             "order_number": None,
             "checkout_url": checkout_url,
             "final_url": None,
+            "graphql_requests": all_graphql_requests,
             "error": str(e)
         }
 
@@ -1008,6 +990,7 @@ def home():
             "order_number": None,
             "checkout_url": None,
             "final_url": None,
+            "graphql_requests": [],
             "error": "Missing cc or url parameters"
         })
     
