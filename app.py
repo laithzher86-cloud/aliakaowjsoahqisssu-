@@ -159,6 +159,41 @@ def get_random_user_agent():
 def get_proxy_url(proxy):
     return f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
 
+def extract_all_codes_from_body(body):
+    """
+    استخراج جميع الأكواد من جسم الرد (body) بغض النظر عن مكان وجودها
+    تشمل: الجذر، errors array، processingError، data.receipt.processingError
+    """
+    codes = []
+    try:
+        # محاولة تحويل إلى JSON إذا كان نصاً
+        if isinstance(body, str):
+            try:
+                data = json.loads(body)
+            except:
+                return codes
+        else:
+            data = body
+        
+        # دالة recursive للبحث عن كل 'code' في الـ JSON
+        def find_codes(obj, path=""):
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    if key == 'code' and isinstance(value, str):
+                        if value and len(value) > 3 and len(value) < 80 and ' ' not in value:
+                            codes.append(value)
+                    else:
+                        find_codes(value, f"{path}.{key}" if path else key)
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    find_codes(item, f"{path}[{i}]")
+        
+        find_codes(data)
+    except:
+        pass
+    
+    return codes
+
 def extract_best_code(all_codes, all_typenames, excluded_codes):
     """
     استخراج أفضل كود بناءً على الأولويات:
@@ -220,7 +255,7 @@ def ff(ccx, site):
     checkout_url = None
     final_url = None
     order_number = None
-    all_graphql_requests = []  # قائمة لتخزين جميع طلبات GraphQL
+    all_graphql_requests = []
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
@@ -603,29 +638,15 @@ def ff(ccx, site):
             order_confirmed = False
             order_number = None
             
+            # قائمة الأكواد المستبعدة - تم إزالة الأكواد المفيدة منها
             excluded_codes = [
-                'REQUIRED_ARTIFACTS_UNAVAILABLE',
-                'PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT',
-                'BUYER_IDENTITY_MISSING_CONTACT_METHOD',
-                'PAYMENTS_ADDRESS1_REQUIRED',
-                'PAYMENTS_LAST_NAME_REQUIRED',
-                'PAYMENTS_FIRST_NAME_REQUIRED',
-                'PAYMENTS_ZONE_REQUIRED_FOR_COUNTRY',
-                'PAYMENTS_POSTAL_CODE_REQUIRED',
-                'DELIVERY_ZONE_REQUIRED_FOR_COUNTRY',
-                'DELIVERY_POSTAL_CODE_REQUIRED',
-                'PAYMENTS_CITY_REQUIRED',
-                'WAITING_PENDING_TERMS',
                 'Free Postal Shipping',
                 'UPS',
-                'DELIVERY_PHONE_NUMBER_REQUIRED',
                 'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
                 'First', 
                 'by-items', 
                 'Standard', 
                 'Priority', 
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
                 'GroundAdvantage', 
                 'MediaMail', 
                 'CAMP', 
@@ -667,6 +688,22 @@ def ff(ccx, site):
                                 'body': body,
                                 'timestamp': resp.get('timestamp', '')
                             })
+                    
+                    # استخراج جميع الأكواد من الجسم باستخدام الدالة الجديدة
+                    extracted_codes = extract_all_codes_from_body(body)
+                    for code in extracted_codes:
+                        if code not in all_codes:
+                            all_codes.append(code)
+                    
+                    # استخراج الـ typename
+                    if '__typename' in body:
+                        pattern = r'"__typename"\s*:\s*"([^"]+)"'
+                        matches = re.findall(pattern, body, re.IGNORECASE)
+                        for typename in matches:
+                            if len(typename) > 3 and len(typename) < 80:
+                                if typename not in ['Query', 'Mutation', 'Subscription']:
+                                    if typename not in all_typenames:
+                                        all_typenames.append(typename)
                     
                     if '/thank_you' in body or 'thank_you' in url:
                         order_confirmed = True
@@ -714,27 +751,6 @@ def ff(ccx, site):
                         except:
                             pass
                     
-                    pattern = r'"code"\s*:\s*"([^"]+)"'
-                    matches = re.findall(pattern, body, re.IGNORECASE)
-                    for code in matches:
-                        if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in code:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and code not in all_codes:
-                                all_codes.append(code)
-                    
-                    if '__typename' in body:
-                        pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                        matches = re.findall(pattern, body, re.IGNORECASE)
-                        for typename in matches:
-                            if len(typename) > 3 and len(typename) < 80:
-                                if typename not in ['Query', 'Mutation', 'Subscription']:
-                                    if typename not in all_typenames:
-                                        all_typenames.append(typename)
-                    
                     if 'processingError' in body:
                         try:
                             data = json.loads(body)
@@ -742,12 +758,7 @@ def ff(ccx, site):
                             if err:
                                 code = err.get('code')
                                 if code and len(code) > 3 and len(code) < 80:
-                                    is_excluded = False
-                                    for excluded in excluded_codes:
-                                        if excluded in code:
-                                            is_excluded = True
-                                            break
-                                    if not is_excluded and code not in all_codes:
+                                    if code not in all_codes:
                                         all_codes.append(code)
                                 typename = err.get('__typename')
                                 if typename and typename not in all_typenames:
@@ -766,12 +777,7 @@ def ff(ccx, site):
                                 if isinstance(error, dict):
                                     code = error.get('code')
                                     if code and len(code) > 3 and len(code) < 80:
-                                        is_excluded = False
-                                        for excluded in excluded_codes:
-                                            if excluded in code:
-                                                is_excluded = True
-                                                break
-                                        if not is_excluded and code not in all_codes:
+                                        if code not in all_codes:
                                             all_codes.append(code)
                                     typename = error.get('__typename')
                                     if typename and typename not in all_typenames:
@@ -786,12 +792,7 @@ def ff(ccx, site):
                     matches = re.findall(pattern, body, re.IGNORECASE)
                     for status in matches:
                         if len(status) > 3 and len(status) < 80 and ' ' not in status:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in status:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and status not in all_codes:
+                            if status not in all_codes:
                                 all_codes.append(status)
                     
                     if '/authentications/' in body or 'AUTHORIZATION_ERROR' in body:
