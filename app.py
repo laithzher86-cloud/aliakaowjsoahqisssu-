@@ -162,6 +162,49 @@ def get_random_user_agent():
 def get_proxy_url(proxy):
     return f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
 
+def extract_best_code(all_codes, all_typenames, excluded_codes):
+    """
+    استخراج أفضل كود بناءً على الأولويات:
+    1. الكودات التي تحتوي على _ (underscore) مع استبعاد الكودات الممنوعة
+    2. إذا لم يوجد، نأخذ أي كود صالح
+    3. إذا لم يوجد كود، نأخذ __typename
+    """
+    # فلترة الكودات المستبعدة
+    valid_codes = []
+    for code in all_codes:
+        is_excluded = False
+        for excluded in excluded_codes:
+            if excluded in code:
+                is_excluded = True
+                break
+        if not is_excluded:
+            valid_codes.append(code)
+    
+    # البحث عن كود يحتوي على _ (underscore)
+    underscore_codes = [code for code in valid_codes if '_' in code]
+    
+    if underscore_codes:
+        # إعطاء الأولوية للكودات التي تبدأ بحروف كبيرة وتحتوي على _ (مثل CAPTCHA_REQUIRED)
+        # نرتبها بحيث الكودات الأكثر تطابقاً مع النمط المطلوب تأتي أولاً
+        priority_codes = []
+        for code in underscore_codes:
+            # التحقق من أن الكود يتبع نمط مثل ERROR_TYPE أو STATUS_CODE
+            if re.match(r'^[A-Z][A-Z_]*[A-Z]$', code):
+                priority_codes.append(code)
+            else:
+                priority_codes.append(code)
+        return priority_codes[0] if priority_codes else underscore_codes[0]
+    
+    # إذا لم نجد كود يحتوي على _، نأخذ أول كود صالح
+    if valid_codes:
+        return valid_codes[0]
+    
+    # إذا لم نجد أي كود، نأخذ أول __typename
+    if all_typenames:
+        return all_typenames[0]
+    
+    return None
+
 def ff(ccx, site):
     
     # ==================== توليد بيانات شحن وهمية متغيرة ====================
@@ -599,13 +642,12 @@ def ff(ccx, site):
                 'GroundAdvantage', 
                 'MediaMail', 
                 'CAMP', 
-            'Flat', 
+                'Flat', 
                 'Shipping', 
                 'fedex_ground_economy', 
                 'PrivacyBannerSettingsBulletPoints', 
                 'Express', 
-                'UiExtension', 
-                
+                'UiExtension'
             ]
             
             for attempt in range(10):
@@ -877,48 +919,28 @@ def ff(ccx, site):
             if driver:
                 driver.quit()
             
+            # ==================== استخراج أفضل كود باستخدام الدالة الجديدة ====================
+            best_code = None
+            
             if order_confirmed:
-                result_code = 'ORDER_CONFIRMED'
+                best_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
                 if order_number:
                     response_result = f'Order confirmed - Order #{order_number}'
                 else:
                     response_result = 'Order confirmed - Thank you for your purchase!'
             elif is_3ds or found_code == '3DS_REQUIRED':
-                result_code = '3DS_REQUIRED'
+                best_code = '3DS_REQUIRED'
                 result_typename = found_typename or 'CompletePaymentChallenge'
-            elif found_code == 'SUCCESS':
-                result_code = 'SUCCESS'
-                result_typename = found_typename
-            elif found_code and found_code not in excluded_codes:
-                result_code = found_code
-                result_typename = found_typename
-            elif all_codes:
-                valid_codes = []
-                for code in all_codes:
-                    is_excluded = False
-                    for excluded in excluded_codes:
-                        if excluded in code:
-                            is_excluded = True
-                            break
-                    if not is_excluded:
-                        valid_codes.append(code)
-                if valid_codes:
-                    result_code = valid_codes[0]
-                else:
-                    result_code = all_codes[0]
-                result_typename = found_typename or (all_typenames[0] if all_typenames else None)
-            elif all_typenames:
-                result_code = all_typenames[0]
-                result_typename = all_typenames[0]
             else:
-                result_code = None
-                result_typename = None
+                # استخدام الدالة الجديدة لاستخراج أفضل كود
+                best_code = extract_best_code(all_codes, all_typenames, excluded_codes)
+                result_typename = found_typename or (all_typenames[0] if all_typenames else None)
             
-            if result_code:
+            if best_code:
                 return {
                     "success": True,
-                    "code": result_code,
+                    "code": best_code,
                     "typename": result_typename,
                     "response": response_result,
                     "price": total_amount,
