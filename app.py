@@ -17,6 +17,7 @@ import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import random
 
 app = Flask(__name__)
 
@@ -29,6 +30,207 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# ==================== نظام توليد عناوين أمريكية متطابقة ====================
+# قوائم بيانات متطابقة: الاسم الأول + اسم العائلة + المدينة + الولاية + zip كلها متناسقة
+MATCHED_ADDRESSES = [
+    {
+        "first_name": "James", "last_name": "Smith", "full_name": "James Smith",
+        "address1": "1200 Main St", "city": "New York", "state": "New York", "zip": "10001",
+        "phone": "2125550101", "email_domain": "gmail.com"
+    },
+    {
+        "first_name": "Mary", "last_name": "Johnson", "full_name": "Mary Johnson",
+        "address1": "2500 Oak Ave", "city": "Los Angeles", "state": "California", "zip": "90001",
+        "phone": "2135550202", "email_domain": "yahoo.com"
+    },
+    {
+        "first_name": "Robert", "last_name": "Williams", "full_name": "Robert Williams",
+        "address1": "3800 Maple Dr", "city": "Chicago", "state": "Illinois", "zip": "60601",
+        "phone": "3125550303", "email_domain": "outlook.com"
+    },
+    {
+        "first_name": "Patricia", "last_name": "Brown", "full_name": "Patricia Brown",
+        "address1": "4500 Cedar Ln", "city": "Houston", "state": "Texas", "zip": "77001",
+        "phone": "7135550404", "email_domain": "hotmail.com"
+    },
+    {
+        "first_name": "John", "last_name": "Jones", "full_name": "John Jones",
+        "address1": "5200 Elm St", "city": "Phoenix", "state": "Arizona", "zip": "85001",
+        "phone": "6025550505", "email_domain": "protonmail.com"
+    },
+    {
+        "first_name": "Jennifer", "last_name": "Garcia", "full_name": "Jennifer Garcia",
+        "address1": "6800 Washington Ave", "city": "Philadelphia", "state": "Pennsylvania", "zip": "19101",
+        "phone": "2155550606", "email_domain": "icloud.com"
+    },
+    {
+        "first_name": "Michael", "last_name": "Miller", "full_name": "Michael Miller",
+        "address1": "7500 Park Ave", "city": "San Antonio", "state": "Texas", "zip": "78201",
+        "phone": "2105550707", "email_domain": "mail.com"
+    },
+    {
+        "first_name": "Linda", "last_name": "Davis", "full_name": "Linda Davis",
+        "address1": "8100 Lake Dr", "city": "San Diego", "state": "California", "zip": "92101",
+        "phone": "6195550808", "email_domain": "aol.com"
+    },
+    {
+        "first_name": "William", "last_name": "Rodriguez", "full_name": "William Rodriguez",
+        "address1": "9300 Hill St", "city": "Dallas", "state": "Texas", "zip": "75201",
+        "phone": "2145550909", "email_domain": "yandex.com"
+    },
+    {
+        "first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez",
+        "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301",
+        "phone": "5125551010", "email_domain": "zoho.com"
+    },
+    {
+        "first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez",
+        "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099",
+        "phone": "9045551111", "email_domain": "fastmail.com"
+    },
+    {
+        "first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez",
+        "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101",
+        "phone": "8175551212", "email_domain": "tutanota.com"
+    },
+    {
+        "first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson",
+        "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004",
+        "phone": "6145551313", "email_domain": "gmail.com"
+    },
+    {
+        "first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson",
+        "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201",
+        "phone": "7045551414", "email_domain": "yahoo.com"
+    },
+    {
+        "first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas",
+        "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101",
+        "phone": "4155551515", "email_domain": "outlook.com"
+    },
+    {
+        "first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor",
+        "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201",
+        "phone": "3175551616", "email_domain": "hotmail.com"
+    },
+    {
+        "first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore",
+        "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101",
+        "phone": "2065551717", "email_domain": "protonmail.com"
+    },
+    {
+        "first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson",
+        "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201",
+        "phone": "3035551818", "email_domain": "icloud.com"
+    },
+    {
+        "first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin",
+        "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001",
+        "phone": "2025551919", "email_domain": "mail.com"
+    },
+    {
+        "first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee",
+        "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101",
+        "phone": "6175552020", "email_domain": "aol.com"
+    },
+]
+
+# قائمة إضافية للأسماء فقط (للتبديل إن لزم)
+FIRST_NAMES = ['James', 'Mary', 'John', 'Patricia', 'Robert', 'Jennifer', 'Michael', 'Linda', 'William', 'Elizabeth',
+               'David', 'Barbara', 'Richard', 'Susan', 'Joseph', 'Jessica', 'Thomas', 'Sarah', 'Charles', 'Karen',
+               'Anthony', 'Lisa', 'Matthew', 'Nancy', 'Daniel', 'Betty', 'Paul', 'Helen', 'Mark', 'Sandra',
+               'Donald', 'Donna', 'George', 'Carol', 'Kenneth', 'Ruth', 'Steven', 'Sharon', 'Edward', 'Michelle',
+               'Brian', 'Laura', 'Ronald', 'Kimberly', 'Kevin', 'Deborah', 'Jason', 'Emily', 'Jeffrey', 'Amanda']
+
+LAST_NAMES = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez',
+              'Hernandez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee',
+              'Perez', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson', 'Walker']
+
+STREET_NAMES = ['Main St', 'Oak Ave', 'Maple Dr', 'Cedar Ln', 'Elm St', 'Washington Ave', 'Park Ave', 'Lake Dr',
+                'Hill St', 'Pine St', 'Church St', 'Market St', 'Bridge St', 'River Rd', 'Forest Ave',
+                'Valley Rd', 'Mountain Ave', 'Sunset Blvd', 'Highland Ave', 'Grove St']
+
+def generate_matched_shipping_data():
+    """
+    توليد بيانات شحن أمريكية متطابقة بالكامل
+    الاسم، المدينة، الولاية، zip كلها متناسقة من قائمة MATCHED_ADDRESSES
+    """
+    address = random.choice(MATCHED_ADDRESSES).copy()
+    
+    # إضافة تنسيق إضافي عشوائي للبريد الإلكتروني
+    username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
+    address["email"] = f"{username}@{address['email_domain']}"
+    
+    return address
+
+def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
+    """
+    طريقة استخراج جديدة - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
+    إذا لم يتم العثور على أي code يحتوي على _ ، ينتقل إلى __typename
+    """
+    
+    # تصفية الكودات المستبعدة أولاً
+    valid_codes = []
+    for code in all_codes:
+        is_excluded = False
+        for excluded in excluded_codes:
+            if excluded in code:
+                is_excluded = True
+                break
+        if not is_excluded:
+            valid_codes.append(code)
+    
+    # المرحلة 1: البحث عن codes تحتوي على شرطة سفلية _
+    underscore_codes = [code for code in valid_codes if '_' in code]
+    
+    # استبعاد patterns غير المرغوب فيها حتى لو كانت تحتوي على _
+    unwanted_patterns = [
+        'Free_Postal_Shipping', 'UPS_', 'Economy_', 'First_', 'Standard_', 'Priority_',
+        'GroundAdvantage_', 'MediaMail_', 'Flat_', 'Shipping_', 'Express_',
+        'PrivacyBannerSettingsBulletPoints_', 'UiExtension_', 'fedex_ground_economy_',
+        'CAMP_', 'by-items_', 'DELIVERY_', 'PAYMENTS_', 'BUYER_', 'REQUIRED_', 'WAITING_'
+    ]
+    
+    filtered_underscore_codes = []
+    for code in underscore_codes:
+        is_unwanted = False
+        for pattern in unwanted_patterns:
+            if pattern in code:
+                is_unwanted = True
+                break
+        if not is_unwanted:
+            filtered_underscore_codes.append(code)
+    
+    # إذا وجدنا codes تحتوي على _ بعد التصفية، نعيد أول واحد
+    if filtered_underscore_codes:
+        return filtered_underscore_codes[0], None
+    
+    # المرحلة 2: إذا لم نجد codes تحتوي على _ ، نبحث في __typename عن ما يحتوي على _
+    if all_typenames:
+        typename_underscore = [t for t in all_typenames if '_' in t]
+        filtered_typename_underscore = []
+        for t in typename_underscore:
+            is_unwanted = False
+            for pattern in unwanted_patterns:
+                if pattern in t:
+                    is_unwanted = True
+                    break
+            if not is_unwanted:
+                filtered_typename_underscore.append(t)
+        
+        if filtered_typename_underscore:
+            return filtered_typename_underscore[0], filtered_typename_underscore[0]
+    
+    # المرحلة 3: إذا لم نجد أي شيء يحتوي على _ ، نرجع أول code عادي صالح
+    if valid_codes:
+        return valid_codes[0], None
+    
+    # المرحلة 4: كملاذ أخير، نرجع أول typename
+    if all_typenames:
+        return all_typenames[0], all_typenames[0]
+    
+    return None, None
+
 def ff(ccx, site):
     """
     ccx: رقم البطاقة|الشهر|السنة|cvv
@@ -37,16 +239,8 @@ def ff(ccx, site):
     مثال: 'https://www.militadowatch.com/'
     """
     
-    shipping_data = {
-        "email": "jbyytt@hi2.in",
-        "first_name": "wrence",
-        "last_name": "Bartt",
-        "address1": "c1 york",
-        "city": "New York",
-        "state": "New York",
-        "zip": "10009",
-        "phone": "2012583991"
-    }
+    # ==================== توليد بيانات شحن متطابقة ====================
+    shipping_data = generate_matched_shipping_data()
     
     parts = ccx.split('|')
     if len(parts) != 4:
@@ -56,7 +250,7 @@ def ff(ccx, site):
         "number": parts[0].strip(),
         "expiry": f"{parts[1].strip()}/{parts[2].strip()[-2:]}",
         "cvv": parts[3].strip(),
-        "name": "Lawrence Barnett"
+        "name": shipping_data["full_name"]
     }
     
     found_code = None
@@ -709,6 +903,7 @@ def ff(ccx, site):
             if driver:
                 driver.quit()
             
+            # ==================== استخدام طريقة الاستخراج الجديدة ====================
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
@@ -725,27 +920,21 @@ def ff(ccx, site):
             elif found_code and found_code not in excluded_codes:
                 result_code = found_code
                 result_typename = found_typename
-            elif all_codes:
-                valid_codes = []
-                for code in all_codes:
-                    is_excluded = False
-                    for excluded in excluded_codes:
-                        if excluded in code:
-                            is_excluded = True
-                            break
-                    if not is_excluded:
-                        valid_codes.append(code)
-                if valid_codes:
-                    result_code = valid_codes[0]
-                else:
-                    result_code = all_codes[0]
-                result_typename = found_typename or (all_typenames[0] if all_typenames else None)
-            elif all_typenames:
-                result_code = all_typenames[0]
-                result_typename = all_typenames[0]
             else:
-                result_code = None
-                result_typename = None
+                # استخدام دالة الاستخراج الجديدة التي تعطي أولوية للـ codes التي تحتوي على _
+                extracted_code, extracted_typename = extract_code_underscore_priority(
+                    all_codes, all_typenames, excluded_codes
+                )
+                
+                if extracted_code:
+                    result_code = extracted_code
+                    result_typename = extracted_typename if extracted_typename else found_typename
+                elif all_typenames:
+                    result_code = all_typenames[0]
+                    result_typename = all_typenames[0]
+                else:
+                    result_code = None
+                    result_typename = None
             
             if result_code:
                 return {
