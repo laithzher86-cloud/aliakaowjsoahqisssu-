@@ -675,6 +675,7 @@ def ff(ccx, site):
                 'PrivacyBannerSettingsBulletPoints', 
                 'Express', 
                 'UiExtension', 
+                'NegotiationResultPayload'
                 
             ]
             
