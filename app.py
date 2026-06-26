@@ -24,7 +24,6 @@ app = Flask(__name__)
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 10
 REQUEST_TIMEOUT = 60
-TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,17 +35,12 @@ active_tasks_lock = threading.Lock()
 # ==================== قائمة البروكسيات ====================
 PROXY_LIST = [
     {"host": "px440401.pointtoserver.com", "port": "10780", "user": "purevpn0s8732217", "pass": "i67s60ep"},
-    # تقدر تضيف بروكسيات إضافية هنا
-    # {"host": "proxy2.example.com", "port": "8080", "user": "user2", "pass": "pass2"},
-    # {"host": "proxy3.example.com", "port": "8080", "user": "user3", "pass": "pass3"},
 ]
 
 def get_random_proxy():
-    """اختيار بروكسي عشوائي من القائمة"""
     return random.choice(PROXY_LIST)
 
 def get_chrome_major_version():
-    """اكتشاف إصدار Chrome المثبت على السيرفر تلقائياً"""
     try:
         result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
         version_str = result.stdout.strip()
@@ -80,25 +74,16 @@ def get_chrome_major_version():
     except:
         pass
     
-    logger.warning("Could not detect Chrome version, using default")
     return None
 
 def create_driver_with_proxy(proxy_dict, task_id=None):
-    """
-    إنشاء متصفح Chrome مع بروكسي باستخدام undetected-chromedriver
-    يتعامل تلقائياً مع إصدار Chrome الموجود
-    """
     proxy_host = proxy_dict['host']
     proxy_port = proxy_dict['port']
     proxy_user = proxy_dict['user']
     proxy_pass = proxy_dict['pass']
     
     options = uc.ChromeOptions()
-    
-    # إعداد البروكسي
     options.add_argument(f'--proxy-server=http://{proxy_host}:{proxy_port}')
-    
-    # إعدادات headless وتحسين الأداء
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
@@ -122,20 +107,12 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
     options.add_argument('--single-process')
     options.add_argument('--disable-ipc-flooding-protection')
     options.add_argument('--memory-pressure-off')
-    
-    # إعدادات إضافية للإخفاء
     options.add_argument('--disable-component-extensions-with-background-pages')
     options.add_argument('--disable-client-side-phishing-detection')
-    options.add_argument('--disable-ipc-flooding-protection')
-    options.add_argument('--disable-field-trial-config')
     options.add_argument('--disable-hang-monitor')
     options.add_argument('--disable-prompt-on-repost')
     options.add_argument('--disable-renderer-backgrounding')
-    options.add_argument('--disable-backgrounding-occluded-windows')
-    options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
-    options.add_argument('--disable-features=Translate,BackForwardCache')
     
-    # الحصول على إصدار Chrome المناسب
     chrome_version = get_chrome_major_version()
     
     if chrome_version:
@@ -145,34 +122,11 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
         logger.info(f"[{task_id}] Creating driver with auto-detected Chrome + proxy")
         driver = uc.Chrome(options=options, use_subprocess=True)
     
-    # مصادقة البروكسي باستخدام CDP
-    try:
-        driver.execute_cdp_cmd('Network.enable', {})
-        # حقن بيانات المصادقة
-        driver.execute_script(f"""
-            // مصادقة البروكسي
-            var authHeader = 'Basic ' + btoa('{proxy_user}:{proxy_pass}');
-            
-            // اعتراض الطلبات لإضافة المصادقة
-            var originalFetch = window.fetch;
-            window.fetch = function(url, options) {{
-                if (!options) options = {{}};
-                if (!options.headers) options.headers = {{}};
-                options.headers['Proxy-Authorization'] = authHeader;
-                return originalFetch.call(this, url, options);
-            }};
-        """)
-        logger.info(f"[{task_id}] Proxy authentication injected")
-    except Exception as e:
-        logger.warning(f"[{task_id}] Proxy auth injection warning: {e}")
-    
-    # إخفاء إضافي
     driver.execute_script("""
         Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
         window.chrome = {runtime: {}};
         Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
         Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-        
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = (parameters) => (
             parameters.name === 'notifications' ?
@@ -234,56 +188,6 @@ MATCHED_ADDRESSES = [
         "first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez",
         "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301",
         "phone": "5125551010", "email_domain": "zoho.com"
-    },
-    {
-        "first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez",
-        "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099",
-        "phone": "9045551111", "email_domain": "fastmail.com"
-    },
-    {
-        "first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez",
-        "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101",
-        "phone": "8175551212", "email_domain": "tutanota.com"
-    },
-    {
-        "first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson",
-        "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004",
-        "phone": "6145551313", "email_domain": "gmail.com"
-    },
-    {
-        "first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson",
-        "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201",
-        "phone": "7045551414", "email_domain": "yahoo.com"
-    },
-    {
-        "first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas",
-        "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101",
-        "phone": "4155551515", "email_domain": "outlook.com"
-    },
-    {
-        "first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor",
-        "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201",
-        "phone": "3175551616", "email_domain": "hotmail.com"
-    },
-    {
-        "first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore",
-        "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101",
-        "phone": "2065551717", "email_domain": "protonmail.com"
-    },
-    {
-        "first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson",
-        "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201",
-        "phone": "3035551818", "email_domain": "icloud.com"
-    },
-    {
-        "first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin",
-        "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001",
-        "phone": "2025551919", "email_domain": "mail.com"
-    },
-    {
-        "first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee",
-        "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101",
-        "phone": "6175552020", "email_domain": "aol.com"
     },
 ]
 
@@ -350,6 +254,48 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     
     return None, None
 
+def fill_field(driver, field_name, value, wait):
+    """تعبئة حقل معين مع معالجة الأخطاء"""
+    try:
+        element = wait.until(EC.presence_of_element_located((By.NAME, field_name)))
+        element.clear()
+        time.sleep(0.1)
+        element.send_keys(value)
+        logger.info(f"Field '{field_name}' filled with: {value}")
+        return True
+    except:
+        try:
+            element = driver.find_element(By.NAME, field_name)
+            element.clear()
+            element.send_keys(value)
+            return True
+        except:
+            try:
+                element = driver.find_element(By.CSS_SELECTOR, f'[name="{field_name}"]')
+                element.clear()
+                element.send_keys(value)
+                return True
+            except:
+                try:
+                    element = driver.find_element(By.ID, field_name)
+                    element.clear()
+                    element.send_keys(value)
+                    return True
+                except:
+                    logger.warning(f"Could not fill field: {field_name}")
+                    return False
+
+def fill_card_field(driver, input_elem, value):
+    """تعبئة حقول البطاقة باستخدام JavaScript"""
+    driver.execute_script("""
+        arguments[0].focus();
+        arguments[0].value = '';
+        arguments[0].value = arguments[1];
+        arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
+        arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
+        arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
+    """, input_elem, value)
+
 def ff(ccx, site, task_id=None):
     
     if task_id:
@@ -392,7 +338,7 @@ def ff(ccx, site, task_id=None):
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -400,7 +346,7 @@ def ff(ccx, site, task_id=None):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=15)
         if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products", "task_id": task_id}
         
@@ -439,12 +385,13 @@ def ff(ccx, site, task_id=None):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=15)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=15)
         checkout_url = response.url
+        logger.info(f"[{task_id}] Checkout URL: {checkout_url}")
         
     except Exception as e:
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
@@ -452,7 +399,6 @@ def ff(ccx, site, task_id=None):
     # ==================== 2. تشغيل المتصفح مع بروكسي ====================
     driver = None
     try:
-        # استخدام بروكسي عشوائي
         proxy_dict = get_random_proxy()
         driver = create_driver_with_proxy(proxy_dict, task_id)
         
@@ -460,25 +406,63 @@ def ff(ccx, site, task_id=None):
         driver.set_page_load_timeout(30)
         
         driver.get(checkout_url)
-        time.sleep(2)
+        time.sleep(3)
+        
+        # حفظ screenshot للتصحيح
+        logger.info(f"[{task_id}] Page loaded: {driver.current_url[:100]}")
+        logger.info(f"[{task_id}] Page title: {driver.title}")
         
         # ==================== 3. تعبئة الشحن ====================
+        shipping_success = False
         try:
-            email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
+            # انتظار تحميل نموذج الشحن - نجرب عدة محددات للـ email
+            logger.info(f"[{task_id}] Starting shipping fill...")
+            
+            # البحث عن حقل email بأي طريقة
+            email_selectors = [
+                (By.ID, "email"),
+                (By.NAME, "email"),
+                (By.CSS_SELECTOR, "input[type='email']"),
+                (By.CSS_SELECTOR, "#email"),
+                (By.CSS_SELECTOR, "[name='email']"),
+                (By.CSS_SELECTOR, "input[placeholder*='email' i]"),
+                (By.CSS_SELECTOR, "input[placeholder*='Email' i]"),
+            ]
+            
+            email_field = None
+            for by, selector in email_selectors:
+                try:
+                    email_field = wait.until(EC.presence_of_element_located((by, selector)))
+                    if email_field:
+                        logger.info(f"[{task_id}] Email field found: {by}={selector}")
+                        break
+                except:
+                    continue
+            
+            if not email_field:
+                logger.error(f"[{task_id}] Email field not found")
+                return {"success": False, "code": None, "error": "Email field not found", "task_id": task_id}
+            
             email_field.clear()
             email_field.send_keys(shipping_data["email"])
-            time.sleep(1.5)
+            logger.info(f"[{task_id}] Email filled: {shipping_data['email']}")
+            time.sleep(1)
             
+            # اختيار الدولة - أمريكا
             try:
                 country_select = driver.find_element(By.NAME, "countryCode")
-                current_country = country_select.get_attribute('value')
-                if current_country != "US":
+                if country_select:
                     Select(country_select).select_by_value("US")
                     time.sleep(0.5)
             except:
-                pass
+                try:
+                    country_select = driver.find_element(By.CSS_SELECTOR, "[name='countryCode']")
+                    Select(country_select).select_by_value("US")
+                except:
+                    pass
             
-            fields = {
+            # تعبئة الحقول
+            fields_to_fill = {
                 "firstName": shipping_data["first_name"],
                 "lastName": shipping_data["last_name"],
                 "address1": shipping_data["address1"],
@@ -487,17 +471,15 @@ def ff(ccx, site, task_id=None):
                 "phone": shipping_data["phone"]
             }
             
-            for field_name, value in fields.items():
-                try:
-                    element = driver.find_element(By.NAME, field_name)
-                    element.clear()
-                    element.send_keys(value)
-                except:
-                    pass
+            for field_name, value in fields_to_fill.items():
+                fill_field(driver, field_name, value, wait)
+                time.sleep(0.3)
             
+            # تعبئة الولاية
             try:
                 state_select = Select(driver.find_element(By.NAME, "zone"))
                 state_select.select_by_visible_text(shipping_data["state"])
+                logger.info(f"[{task_id}] State selected: {shipping_data['state']}")
             except:
                 try:
                     state_input = driver.find_element(By.NAME, "zone")
@@ -505,101 +487,174 @@ def ff(ccx, site, task_id=None):
                     state_input.send_keys(shipping_data["state"])
                     state_input.send_keys(Keys.ENTER)
                 except:
-                    pass
+                    logger.warning(f"[{task_id}] Could not set state")
             
-            time.sleep(0.5)
-            continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
-            driver.execute_script("arguments[0].click();", continue_btn)
-            time.sleep(2)
+            time.sleep(1)
             
-        except:
-            return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
+            # الضغط على Continue to shipping أو Continue to payment
+            continue_selectors = [
+                "//button[contains(text(), 'Continue to shipping')]",
+                "//button[contains(text(), 'Continue to payment')]",
+                "//button[contains(text(), 'Continue')]",
+                "//button[@type='submit']",
+                "button[type='submit']"
+            ]
+            
+            continue_btn = None
+            for xpath in continue_selectors:
+                try:
+                    buttons = driver.find_elements(By.XPATH, xpath)
+                    for button in buttons:
+                        if button.is_displayed() and button.is_enabled():
+                            continue_btn = button
+                            break
+                    if continue_btn:
+                        break
+                except:
+                    continue
+            
+            if continue_btn:
+                driver.execute_script("arguments[0].scrollIntoView(true);", continue_btn)
+                time.sleep(0.5)
+                driver.execute_script("arguments[0].click();", continue_btn)
+                logger.info(f"[{task_id}] Continue button clicked")
+                time.sleep(3)
+                shipping_success = True
+            else:
+                logger.error(f"[{task_id}] Continue button not found")
+                # محاولة الضغط على أي زر submit
+                driver.execute_script("""
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].type === 'submit' || buttons[i].textContent.includes('Continue')) {
+                            buttons[i].click();
+                            break;
+                        }
+                    }
+                """)
+                time.sleep(3)
+                shipping_success = True
+            
+            logger.info(f"[{task_id}] Shipping fill completed. Current URL: {driver.current_url[:100]}")
+            
+        except Exception as e:
+            logger.error(f"[{task_id}] Shipping fill error: {str(e)}")
+            try:
+                logger.info(f"[{task_id}] Page source: {driver.page_source[:500]}")
+            except:
+                pass
+            return {"success": False, "code": None, "error": f"Shipping fill failed: {str(e)}", "task_id": task_id}
         
         # ==================== 4. تعبئة الدفع ====================
         try:
-            driver.switch_to.default_content()
-            time.sleep(0.5)
+            logger.info(f"[{task_id}] Starting payment fill...")
+            time.sleep(2)
             
+            driver.switch_to.default_content()
+            
+            # البحث عن iframes
             iframes = driver.find_elements(By.TAG_NAME, 'iframe')
+            logger.info(f"[{task_id}] Found {len(iframes)} iframes")
             
             card_filled = False
             expiry_filled = False
             cvv_filled = False
             name_filled = False
             
-            for iframe in iframes:
+            # أولاً نجرب تعبئة بدون iframe (بعض المواقع ما تستخدم iframe)
+            all_inputs = driver.find_elements(By.TAG_NAME, 'input')
+            logger.info(f"[{task_id}] Found {len(all_inputs)} inputs on main page")
+            
+            for input_elem in all_inputs:
                 try:
-                    driver.switch_to.frame(iframe)
-                    inputs = driver.find_elements(By.TAG_NAME, 'input')
+                    data_field = input_elem.get_attribute('data-field') or ''
+                    placeholder = (input_elem.get_attribute('placeholder') or '').lower()
+                    autocomplete = (input_elem.get_attribute('autocomplete') or '').lower()
+                    name = (input_elem.get_attribute('name') or '').lower()
+                    id_attr = (input_elem.get_attribute('id') or '').lower()
                     
-                    for input_elem in inputs:
-                        data_field = input_elem.get_attribute('data-field') or ''
-                        placeholder = input_elem.get_attribute('placeholder') or ''
-                        autocomplete = input_elem.get_attribute('autocomplete') or ''
-                        input_id = input_elem.get_attribute('id') or ''
-                        
-                        if not card_filled and (data_field == 'number' or 'card number' in placeholder.lower() or autocomplete == 'cc-number'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["number"])
-                            card_filled = True
-                            time.sleep(0.2)
-                        
-                        elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder.lower() or autocomplete == 'cc-exp'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["expiry"])
-                            expiry_filled = True
-                            time.sleep(0.2)
-                        
-                        elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder.lower() or autocomplete == 'cc-csc'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["cvv"])
-                            cvv_filled = True
-                            time.sleep(0.2)
-                        
-                        elif not name_filled and (data_field == 'name' or 'name' in placeholder.lower() or autocomplete == 'cc-name'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["name"])
-                            name_filled = True
-                            time.sleep(0.2)
+                    if not card_filled and ('number' in data_field or 'card number' in placeholder or 'cc-number' in autocomplete or 'cardnumber' in name or 'number' in id_attr):
+                        fill_card_field(driver, input_elem, card_data["number"])
+                        card_filled = True
+                        logger.info(f"[{task_id}] Card number filled (main)")
+                        time.sleep(0.3)
                     
-                    driver.switch_to.default_content()
+                    elif not expiry_filled and ('expiry' in data_field or 'expiry' in placeholder or 'cc-exp' in autocomplete or 'exp-date' in name or 'expiry' in id_attr):
+                        fill_card_field(driver, input_elem, card_data["expiry"])
+                        expiry_filled = True
+                        logger.info(f"[{task_id}] Expiry filled (main)")
+                        time.sleep(0.3)
                     
-                    if card_filled and expiry_filled and cvv_filled and name_filled:
-                        break
-                        
+                    elif not cvv_filled and ('cvv' in data_field or 'cvv' in placeholder or 'cc-csc' in autocomplete or 'verification_value' in name or 'cvc' in id_attr):
+                        fill_card_field(driver, input_elem, card_data["cvv"])
+                        cvv_filled = True
+                        logger.info(f"[{task_id}] CVV filled (main)")
+                        time.sleep(0.3)
+                    
+                    elif not name_filled and ('name' in data_field or 'name' in placeholder or 'cc-name' in autocomplete or 'cardholder' in name):
+                        fill_card_field(driver, input_elem, card_data["name"])
+                        name_filled = True
+                        logger.info(f"[{task_id}] Name filled (main)")
+                        time.sleep(0.3)
                 except:
-                    driver.switch_to.default_content()
-                    continue
+                    pass
             
+            # إذا ما انملت الحقول، نجرب داخل iframes
             if not (card_filled and expiry_filled and cvv_filled and name_filled):
-                return {"success": False, "code": None, "error": "Payment fill failed", "task_id": task_id}
+                for iframe in iframes:
+                    try:
+                        driver.switch_to.frame(iframe)
+                        inputs = driver.find_elements(By.TAG_NAME, 'input')
+                        logger.info(f"[{task_id}] Checking iframe with {len(inputs)} inputs")
+                        
+                        for input_elem in inputs:
+                            try:
+                                data_field = input_elem.get_attribute('data-field') or ''
+                                placeholder = (input_elem.get_attribute('placeholder') or '').lower()
+                                autocomplete = (input_elem.get_attribute('autocomplete') or '').lower()
+                                name = (input_elem.get_attribute('name') or '').lower()
+                                id_attr = (input_elem.get_attribute('id') or '').lower()
+                                
+                                if not card_filled and ('number' in data_field or 'card number' in placeholder or 'cc-number' in autocomplete or 'cardnumber' in name or 'number' in id_attr):
+                                    fill_card_field(driver, input_elem, card_data["number"])
+                                    card_filled = True
+                                    logger.info(f"[{task_id}] Card number filled (iframe)")
+                                    time.sleep(0.3)
+                                
+                                elif not expiry_filled and ('expiry' in data_field or 'expiry' in placeholder or 'cc-exp' in autocomplete or 'exp-date' in name):
+                                    fill_card_field(driver, input_elem, card_data["expiry"])
+                                    expiry_filled = True
+                                    logger.info(f"[{task_id}] Expiry filled (iframe)")
+                                    time.sleep(0.3)
+                                
+                                elif not cvv_filled and ('cvv' in data_field or 'cvv' in placeholder or 'cc-csc' in autocomplete or 'verification_value' in name):
+                                    fill_card_field(driver, input_elem, card_data["cvv"])
+                                    cvv_filled = True
+                                    logger.info(f"[{task_id}] CVV filled (iframe)")
+                                    time.sleep(0.3)
+                                
+                                elif not name_filled and ('name' in data_field or 'name' in placeholder or 'cc-name' in autocomplete or 'cardholder' in name):
+                                    fill_card_field(driver, input_elem, card_data["name"])
+                                    name_filled = True
+                                    logger.info(f"[{task_id}] Name filled (iframe)")
+                                    time.sleep(0.3)
+                            except:
+                                pass
+                        
+                        driver.switch_to.default_content()
+                        
+                        if card_filled and expiry_filled and cvv_filled and name_filled:
+                            break
+                            
+                    except:
+                        driver.switch_to.default_content()
+                        continue
             
-        except:
-            return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
+            logger.info(f"[{task_id}] Payment fill status: card={card_filled}, expiry={expiry_filled}, cvv={cvv_filled}, name={name_filled}")
+            
+        except Exception as e:
+            logger.error(f"[{task_id}] Payment fill error: {str(e)}")
+            return {"success": False, "code": None, "error": f"Payment error: {str(e)}", "task_id": task_id}
         
         # ==================== 5. اعتراض GraphQL ====================
         try:
@@ -607,55 +662,36 @@ def ff(ccx, site, task_id=None):
             window.graphqlResponses = [];
             window.allResponses = [];
             window.pollForReceiptResponses = [];
-            window.pageUrls = [];
             
             var originalFetch = window.fetch;
             window.fetch = function(url, options) {
-                var self = this;
-                var args = arguments;
-                
-                return originalFetch.apply(self, args).then(function(response) {
+                return originalFetch.apply(this, arguments).then(function(response) {
                     var clone = response.clone();
                     var responseUrl = url;
                     var requestBody = null;
                     
                     if (options && options.body) {
-                        try {
-                            requestBody = options.body;
-                        } catch(e) {}
+                        try { requestBody = options.body; } catch(e) {}
                     }
                     
                     clone.text().then(function(text) {
-                        var data = {
-                            url: responseUrl,
-                            body: text,
-                            requestBody: requestBody,
-                            timestamp: new Date().toISOString()
-                        };
-                        
+                        var data = {url: responseUrl, body: text, requestBody: requestBody, timestamp: new Date().toISOString()};
                         window.allResponses.push(data);
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
-                            
                             var isProposal = false;
                             if (requestBody) {
                                 try {
                                     var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'Proposal') {
-                                        isProposal = true;
-                                    }
+                                    if (parsedBody.operationName === 'Proposal') isProposal = true;
                                 } catch(e) {}
                             }
-                            
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                
                                 if (requestBody) {
                                     try {
                                         var parsedBody2 = JSON.parse(requestBody);
-                                        if (parsedBody2.operationName === 'PollForReceipt') {
-                                            window.pollForReceiptResponses.push(data);
-                                        }
+                                        if (parsedBody2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data);
                                     } catch(e) {}
                                 }
                             }
@@ -667,65 +703,28 @@ def ff(ccx, site, task_id=None):
             
             var originalXHROpen = XMLHttpRequest.prototype.open;
             var originalXHRSend = XMLHttpRequest.prototype.send;
-            
-            XMLHttpRequest.prototype.open = function(method, url) {
-                this._url = url;
-                this._method = method;
-                return originalXHROpen.apply(this, arguments);
-            };
-            
+            XMLHttpRequest.prototype.open = function(method, url) { this._url = url; return originalXHROpen.apply(this, arguments); };
             XMLHttpRequest.prototype.send = function(body) {
                 var self = this;
-                var requestBody = body;
-                
                 this.addEventListener('load', function() {
                     try {
-                        var text = self.responseText;
-                        var responseUrl = self._url;
-                        
-                        var data = {
-                            url: responseUrl,
-                            body: text,
-                            requestBody: requestBody,
-                            timestamp: new Date().toISOString()
-                        };
-                        
+                        var data = {url: self._url, body: self.responseText, requestBody: body, timestamp: new Date().toISOString()};
                         window.allResponses.push(data);
-                        
-                        if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
-                            
+                        if (self._url && self._url.includes('/checkouts/internal/graphql/persisted')) {
                             var isProposal = false;
-                            if (requestBody) {
-                                try {
-                                    var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'Proposal') {
-                                        isProposal = true;
-                                    }
-                                } catch(e) {}
+                            if (body) {
+                                try { var p = JSON.parse(body); if (p.operationName === 'Proposal') isProposal = true; } catch(e) {}
                             }
-                            
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                
-                                if (requestBody) {
-                                    try {
-                                        var parsedBody2 = JSON.parse(requestBody);
-                                        if (parsedBody2.operationName === 'PollForReceipt') {
-                                            window.pollForReceiptResponses.push(data);
-                                        }
-                                    } catch(e) {}
+                                if (body) {
+                                    try { var p2 = JSON.parse(body); if (p2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data); } catch(e) {}
                                 }
                             }
                         }
                     } catch(e) {}
                 });
                 return originalXHRSend.apply(this, arguments);
-            };
-            
-            var originalPushState = history.pushState;
-            history.pushState = function(state, title, url) {
-                window.pageUrls.push(url);
-                return originalPushState.apply(this, arguments);
             };
             """
             driver.execute_script(script)
@@ -740,7 +739,8 @@ def ff(ccx, site, task_id=None):
                 "//button[contains(text(), 'Pay') and not(contains(text(), 'Pal'))]",
                 "//button[contains(text(), 'Complete order')]",
                 "//button[contains(text(), 'Place order')]",
-                "//button[@type='submit']"
+                "//button[@type='submit']",
+                "//input[@type='submit']"
             ]
             
             pay_button = None
@@ -757,18 +757,22 @@ def ff(ccx, site, task_id=None):
                     continue
             
             if pay_button:
+                driver.execute_script("arguments[0].scrollIntoView(true);", pay_button)
+                time.sleep(0.5)
                 driver.execute_script("arguments[0].click();", pay_button)
+                logger.info(f"[{task_id}] Pay button clicked")
             else:
                 driver.execute_script("""
-                    var buttons = document.querySelectorAll('button[type="submit"]');
+                    var buttons = document.querySelectorAll('button, input[type="submit"]');
                     for (var i = 0; i < buttons.length; i++) {
-                        var text = buttons[i].textContent || '';
-                        if (text.includes('Pay now') || text.includes('Pay') || text.includes('Complete') || text.includes('Place order')) {
+                        var text = (buttons[i].textContent || buttons[i].value || '').toLowerCase();
+                        if (text.includes('pay') || text.includes('complete') || text.includes('place') || text.includes('order')) {
                             buttons[i].click();
-                            return true;
+                            return;
                         }
                     }
                 """)
+                logger.info(f"[{task_id}] Fallback pay button click executed")
             
             # ==================== 7. استخراج الكود ====================
             found_code = None
@@ -780,30 +784,16 @@ def ff(ccx, site, task_id=None):
             order_number = None
             
             excluded_codes = [
-                'REQUIRED_ARTIFACTS_UNAVAILABLE',
-                'PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT',
-                'BUYER_IDENTITY_MISSING_CONTACT_METHOD',
-                'PAYMENTS_ADDRESS1_REQUIRED',
-                'PAYMENTS_LAST_NAME_REQUIRED',
-                'PAYMENTS_FIRST_NAME_REQUIRED',
-                'PAYMENTS_ZONE_REQUIRED_FOR_COUNTRY',
-                'PAYMENTS_POSTAL_CODE_REQUIRED',
-                'DELIVERY_ZONE_REQUIRED_FOR_COUNTRY',
-                'DELIVERY_POSTAL_CODE_REQUIRED',
-                'PAYMENTS_CITY_REQUIRED',
-                'WAITING_PENDING_TERMS',
-                'Free Postal Shipping',
-                'UPS',
-                'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE',
-                'First',
-                'by-items',
-                'Standard',
-                'Priority',
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
-                'GroundAdvantage',
-                'MediaMail'
+                'REQUIRED_ARTIFACTS_UNAVAILABLE', 'PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT',
+                'BUYER_IDENTITY_MISSING_CONTACT_METHOD', 'PAYMENTS_ADDRESS1_REQUIRED',
+                'PAYMENTS_LAST_NAME_REQUIRED', 'PAYMENTS_FIRST_NAME_REQUIRED',
+                'PAYMENTS_ZONE_REQUIRED_FOR_COUNTRY', 'PAYMENTS_POSTAL_CODE_REQUIRED',
+                'DELIVERY_ZONE_REQUIRED_FOR_COUNTRY', 'DELIVERY_POSTAL_CODE_REQUIRED',
+                'PAYMENTS_CITY_REQUIRED', 'WAITING_PENDING_TERMS', 'Free Postal Shipping',
+                'UPS', 'DELIVERY_PHONE_NUMBER_REQUIRED', 'Economy',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 'First', 'by-items',
+                'Standard', 'Priority', 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
+                'GroundAdvantage', 'MediaMail'
             ]
             
             for attempt in range(10):
@@ -817,7 +807,7 @@ def ff(ccx, site, task_id=None):
                 if '/thank_you' in current_url:
                     order_confirmed = True
                     found_code = 'ORDER_CONFIRMED'
-                    response_result = 'Order confirmed - Thank you for your purchase!'
+                    response_result = 'Order confirmed'
                     order_match = re.search(r'order_([A-Z0-9]+)', current_url, re.IGNORECASE)
                     if order_match:
                         order_number = order_match.group(1)
@@ -825,213 +815,68 @@ def ff(ccx, site, task_id=None):
                 
                 try:
                     page_source = driver.page_source
-                    if 'thank-you' in current_url or 'thank_you' in current_url:
+                    if 'Your order is confirmed' in page_source or 'Thank you for your purchase' in page_source or 'thank you for your order' in page_source.lower():
                         order_confirmed = True
                         found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if 'Your order is confirmed' in page_source or 'Thank you for your purchase!' in page_source:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        response_result = 'Order confirmed'
                         order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
                         if order_match:
                             order_number = order_match.group(1)
                         break
-                    
-                    if 'Thank you for your order' in page_source or 'thank you for your order' in page_source.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                    if order_match:
-                        order_number = order_match.group(1)
-                        
                 except:
                     pass
                 
-                # [باقي كود الاستخراج كما هو بدون تغيير...]
-                for resp in poll_responses:
+                all_responses = poll_responses + graphql_responses
+                
+                for resp in all_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
                     
                     if not body:
                         continue
                     
+                    if 'thank_you' in body.lower() or 'order confirmed' in body.lower():
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed'
+                        break
+                    
+                    if 'CompletePaymentChallenge' in body:
+                        is_3ds = True
+                        found_code = '3DS_REQUIRED'
+                        found_typename = 'CompletePaymentChallenge'
+                        response_result = '3DS Secure required'
+                        break
+                    
+                    # استخراج code
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
                     for code in matches:
                         if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in code:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and code not in all_codes:
+                            if code not in all_codes:
                                 all_codes.append(code)
                     
+                    # استخراج typename
                     if '__typename' in body:
                         pattern = r'"__typename"\s*:\s*"([^"]+)"'
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for typename in matches:
-                            if len(typename) > 3 and len(typename) < 80:
-                                if typename not in ['Query', 'Mutation', 'Subscription']:
-                                    if typename not in all_typenames:
-                                        all_typenames.append(typename)
-                    
-                    if 'processingError' in body:
-                        try:
-                            data = json.loads(body)
-                            err = data.get('data', {}).get('receipt', {}).get('processingError', {})
-                            if err:
-                                code = err.get('code')
-                                if code and len(code) > 3 and len(code) < 80:
-                                    all_codes.append(code)
-                                typename = err.get('__typename')
-                                if typename and typename not in all_typenames:
+                            if typename not in ['Query', 'Mutation', 'Subscription']:
+                                if typename not in all_typenames:
                                     all_typenames.append(typename)
-                                message = err.get('message', '')
-                                if message:
-                                    response_result = message
-                        except:
-                            pass
                     
-                    if 'errors' in body:
-                        try:
-                            data = json.loads(body)
-                            errors = data.get('errors', [])
-                            for error in errors:
-                                if isinstance(error, dict):
-                                    code = error.get('code')
-                                    if code and len(code) > 3 and len(code) < 80:
-                                        all_codes.append(code)
-                                    typename = error.get('__typename')
-                                    if typename and typename not in all_typenames:
-                                        all_typenames.append(typename)
-                                    message = error.get('message', '')
-                                    if message:
-                                        response_result = message
-                        except:
-                            pass
-                
-                for resp in graphql_responses:
-                    body = resp.get('body', '')
-                    url = resp.get('url', '')
-                    
-                    if not body:
-                        continue
-                    
-                    if '/thank_you' in body or 'thank_you' in url:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if 'Your order is confirmed' in body or 'Order confirmed' in body or 'order confirmed' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if 'Thank you for your order' in body or 'thank you for your order' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if '/persisted' in url and 'CompletePaymentChallenge' in body:
-                        try:
-                            data = json.loads(body)
-                            if 'data' in data and 'receipt' in data['data']:
-                                receipt = data['data']['receipt']
-                                if 'action' in receipt:
-                                    action = receipt['action']
-                                    if action.get('__typename') == 'CompletePaymentChallenge':
-                                        is_3ds = True
-                                        found_code = '3DS_REQUIRED'
-                                        found_typename = 'CompletePaymentChallenge'
-                                        response_result = '3DS Secure required - Please complete authentication'
-                                        break
-                        except:
-                            pass
-                    
-                    if not all_codes:
-                        pattern = r'"code"\s*:\s*"([^"]+)"'
-                        matches = re.findall(pattern, body, re.IGNORECASE)
-                        for code in matches:
-                            if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                is_excluded = False
-                                for excluded in excluded_codes:
-                                    if excluded in code:
-                                        is_excluded = True
-                                        break
-                                if not is_excluded and code not in all_codes:
-                                    all_codes.append(code)
-                    
-                    if not all_typenames:
-                        if '__typename' in body:
-                            pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                            matches = re.findall(pattern, body, re.IGNORECASE)
-                            for typename in matches:
-                                if len(typename) > 3 and len(typename) < 80:
-                                    if typename not in ['Query', 'Mutation', 'Subscription']:
-                                        if typename not in all_typenames:
-                                            all_typenames.append(typename)
-                    
-                    pattern = r'"status"\s*:\s*"([^"]+)"'
-                    matches = re.findall(pattern, body, re.IGNORECASE)
-                    for status in matches:
-                        if len(status) > 3 and len(status) < 80 and ' ' not in status:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in status:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and status not in all_codes:
-                                all_codes.append(status)
-                    
-                    if '/authentications/' in body or 'AUTHORIZATION_ERROR' in body:
-                        if '3DS_REQUIRED' not in all_codes:
-                            all_codes.append('3DS_REQUIRED')
-                            response_result = '3DS Secure required'
-                    
-                    if 'INCORRECT_ZIP' in body:
-                        if 'INCORRECT_ZIP' not in all_codes:
-                            all_codes.append('INCORRECT_ZIP')
-                            response_result = 'Incorrect ZIP'
-                    if 'INSUFFICIENT_FUNDS' in body:
-                        if 'INSUFFICIENT_FUNDS' not in all_codes:
-                            all_codes.append('INSUFFICIENT_FUNDS')
-                            response_result = 'Insufficient funds'
-                    if 'INCORRECT_CVC' in body:
-                        if 'INCORRECT_CVC' not in all_codes:
-                            all_codes.append('INCORRECT_CVC')
-                            response_result = 'INCORRECT_CVC'
+                    # كلمات دلالية
+                    body_upper = body.upper()
+                    if 'INCORRECT_ZIP' in body_upper: all_codes.append('INCORRECT_ZIP')
+                    if 'INSUFFICIENT_FUNDS' in body_upper: all_codes.append('INSUFFICIENT_FUNDS')
+                    if 'INCORRECT_CVC' in body_upper: all_codes.append('INCORRECT_CVC')
+                    if 'CARD_DECLINED' in body_upper: all_codes.append('CARD_DECLINED')
+                    if 'FRAUD' in body_upper: all_codes.append('FRAUD_SUSPECTED')
                 
                 if found_code or order_confirmed:
                     break
                 
                 final_url = driver.current_url
-            
-            # [استخراج من performance logs محذوف - غير مدعوم في هالإصدار]
             
             try:
                 final_url = driver.current_url
@@ -1041,20 +886,14 @@ def ff(ccx, site, task_id=None):
             if driver:
                 driver.quit()
             
-            # ==================== نتيجة الاستخراج (كما هي بدون تغيير) ====================
+            # ==================== نتيجة الاستخراج ====================
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
-                if order_number:
-                    response_result = f'Order confirmed - Order #{order_number}'
-                else:
-                    response_result = 'Order confirmed - Thank you for your purchase!'
+                response_result = f'Order confirmed{f" - Order #{order_number}" if order_number else ""}'
             elif is_3ds or found_code == '3DS_REQUIRED':
                 result_code = '3DS_REQUIRED'
                 result_typename = found_typename or 'CompletePaymentChallenge'
-            elif found_code == 'SUCCESS':
-                result_code = 'SUCCESS'
-                result_typename = found_typename
             elif found_code and found_code not in excluded_codes:
                 result_code = found_code
                 result_typename = found_typename
@@ -1062,104 +901,45 @@ def ff(ccx, site, task_id=None):
                 extracted_code, extracted_typename = extract_code_underscore_priority(
                     all_codes, all_typenames, excluded_codes
                 )
-                
-                if extracted_code:
-                    result_code = extracted_code
-                    result_typename = extracted_typename if extracted_typename else found_typename
-                elif all_typenames:
-                    result_code = all_typenames[0]
-                    result_typename = all_typenames[0]
-                else:
-                    result_code = None
-                    result_typename = None
+                result_code = extracted_code
+                result_typename = extracted_typename
             
             if task_id:
                 with active_tasks_lock:
                     if task_id in active_tasks:
                         active_tasks[task_id]["status"] = "completed"
-                        active_tasks[task_id]["result"] = result_code
             
-            if result_code:
-                return {
-                    "success": True,
-                    "code": result_code,
-                    "typename": result_typename,
-                    "response": response_result,
-                    "price": total_amount,
-                    "order_number": order_number,
-                    "checkout_url": checkout_url,
-                    "final_url": final_url,
-                    "error": None,
-                    "task_id": task_id
-                }
-            else:
-                return {
-                    "success": False,
-                    "code": None,
-                    "typename": None,
-                    "response": None,
-                    "price": total_amount,
-                    "order_number": None,
-                    "checkout_url": checkout_url,
-                    "final_url": final_url,
-                    "error": "Code not found",
-                    "task_id": task_id
-                }
+            return {
+                "success": True if result_code else False,
+                "code": result_code,
+                "typename": result_typename,
+                "response": response_result,
+                "price": total_amount,
+                "order_number": order_number,
+                "checkout_url": checkout_url,
+                "final_url": final_url,
+                "error": None if result_code else "Code not found",
+                "task_id": task_id
+            }
         
         except Exception as e:
             if driver:
                 driver.quit()
-            if task_id:
-                with active_tasks_lock:
-                    if task_id in active_tasks:
-                        active_tasks[task_id]["status"] = "error"
-                        active_tasks[task_id]["error"] = str(e)
-            return {
-                "success": False,
-                "code": None,
-                "typename": None,
-                "response": None,
-                "price": total_amount,
-                "order_number": None,
-                "checkout_url": checkout_url,
-                "final_url": None,
-                "error": str(e),
-                "task_id": task_id
-            }
+            return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
     except Exception as e:
         if driver:
             driver.quit()
-        if task_id:
-            with active_tasks_lock:
-                if task_id in active_tasks:
-                    active_tasks[task_id]["status"] = "error"
-                    active_tasks[task_id]["error"] = str(e)
-        return {
-            "success": False,
-            "code": None,
-            "typename": None,
-            "response": None,
-            "price": total_amount,
-            "order_number": None,
-            "checkout_url": checkout_url,
-            "final_url": None,
-            "error": str(e),
-            "task_id": task_id
-        }
+        return {"success": False, "code": None, "error": str(e), "task_id": task_id}
 
-# ==================== Routes (كما هي بدون تغيير) ====================
+# ==================== Routes ====================
 @app.route('/', methods=['GET'])
 def home():
     cc = request.args.get('cc')
     url = request.args.get('url')
     
     if not cc or not url:
-        return jsonify({
-            "success": False,
-            "code": None,
-            "error": "Missing cc or url parameters. Use /?cc=CARD&url=SITE"
-        })
+        return jsonify({"success": False, "code": None, "error": "Missing cc or url parameters"})
     
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
     future = executor.submit(ff, cc, url, task_id)
@@ -1168,35 +948,13 @@ def home():
         result = future.result(timeout=REQUEST_TIMEOUT)
         return jsonify(result)
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "code": None,
-            "error": f"Task timeout or error: {str(e)}",
-            "task_id": task_id
-        })
-
-@app.route('/status', methods=['GET'])
-def status():
-    with active_tasks_lock:
-        return jsonify({
-            "active_tasks_count": len(active_tasks),
-            "max_workers": MAX_WORKERS,
-            "tasks": active_tasks
-        })
+        return jsonify({"success": False, "code": None, "error": f"Timeout: {str(e)}", "task_id": task_id})
 
 @app.route('/health', methods=['GET'])
 def health():
-    chrome_ver = get_chrome_major_version()
-    return jsonify({
-        "status": "ok",
-        "max_workers": MAX_WORKERS,
-        "active_tasks": len(active_tasks),
-        "chrome_version": chrome_ver,
-        "proxy_count": len(PROXY_LIST)
-    })
+    return jsonify({"status": "ok", "max_workers": MAX_WORKERS, "chrome_version": get_chrome_major_version()})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     logger.info(f"Starting server on port {port}")
-    logger.info(f"Chrome version: {get_chrome_major_version()}")
     app.run(host='0.0.0.0', port=port, threaded=True)
