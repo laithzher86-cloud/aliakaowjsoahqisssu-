@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة + undetected-chromedriver
+# app.py - ملف API عالي الأداء مع undetected-chromedriver - دعم أي إصدار Chrome
 import time
 import re
 import json
@@ -17,21 +17,51 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
+import subprocess
 
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 5  # عدد الطلبات المتوازية (قللناه لأن undetected-chromedriver يستهلك موارد أكثر)
-REQUEST_TIMEOUT = 90  # زودنا الوقت لأن السلوك البشري يأخذ وقت أطول
+MAX_WORKERS = 5
+REQUEST_TIMEOUT = 90
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# تتبع المهام النشطة
 active_tasks = {}
 active_tasks_lock = threading.Lock()
+
+# ==================== كشف إصدار Chrome تلقائياً ====================
+def get_chrome_version():
+    """الحصول على إصدار Chrome الرئيسي تلقائياً"""
+    try:
+        result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            version = int(match.group(1))
+            logger.info(f"Detected Chrome version: {version}")
+            return version
+    except:
+        pass
+    
+    try:
+        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            version = int(match.group(1))
+            logger.info(f"Detected Chromium version: {version}")
+            return version
+    except:
+        pass
+    
+    logger.warning("Could not detect Chrome version, using default")
+    return None
+
+CHROME_VERSION = get_chrome_version()
 
 # ==================== نظام توليد عناوين أمريكية متطابقة ====================
 MATCHED_ADDRESSES = [
@@ -138,18 +168,14 @@ MATCHED_ADDRESSES = [
 ]
 
 def generate_matched_shipping_data():
-    """
-    توليد بيانات شحن أمريكية متطابقة بالكامل
-    """
+    """توليد بيانات شحن أمريكية متطابقة بالكامل"""
     address = random.choice(MATCHED_ADDRESSES).copy()
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
-    """
-    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
-    """
+    """طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _"""
     
     valid_codes = []
     for code in all_codes:
@@ -207,9 +233,7 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     return None, None
 
 def human_type(element, text, driver):
-    """
-    كتابة النص حرف حرف بطريقة بشرية مع تأخيرات عشوائية
-    """
+    """كتابة النص حرف حرف بطريقة بشرية مع تأخيرات عشوائية"""
     element.click()
     time.sleep(random.uniform(0.1, 0.3))
     element.clear()
@@ -222,12 +246,9 @@ def human_type(element, text, driver):
     time.sleep(random.uniform(0.1, 0.3))
 
 def human_mouse_move(driver, element):
-    """
-    تحريك الماوس بشكل عشوائي نحو العنصر
-    """
+    """تحريك الماوس بشكل عشوائي نحو العنصر"""
     try:
         actions = ActionChains(driver)
-        # تحريك عشوائي قبل الوصول للعنصر
         for _ in range(random.randint(1, 3)):
             x_offset = random.randint(-100, 100)
             y_offset = random.randint(-50, 50)
@@ -241,9 +262,7 @@ def human_mouse_move(driver, element):
         pass
 
 def random_scroll(driver):
-    """
-    تمرير عشوائي للصفحة لمحاكاة السلوك البشري
-    """
+    """تمرير عشوائي للصفحة لمحاكاة السلوك البشري"""
     try:
         total_height = driver.execute_script("return document.body.scrollHeight")
         scroll_points = random.randint(1, 3)
@@ -255,9 +274,7 @@ def random_scroll(driver):
         pass
 
 def ff(ccx, site, task_id=None):
-    """
-    دالة معالجة بطاقة واحدة وموقع واحد - تستخدم undetected-chromedriver
-    """
+    """دالة معالجة بطاقة واحدة وموقع واحد - تستخدم undetected-chromedriver"""
     
     if task_id:
         with active_tasks_lock:
@@ -353,12 +370,11 @@ def ff(ccx, site, task_id=None):
     except Exception as e:
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
-    # ==================== 2. تشغيل المتصفح - undetected-chromedriver ====================
+    # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
-        # إعدادات undetected-chromedriver
         options = uc.ChromeOptions()
-        options.add_argument('--headless=new')  # وضع headless جديد
+        options.add_argument('--headless=new')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-blink-features=AutomationControlled')
@@ -372,24 +388,18 @@ def ff(ccx, site, task_id=None):
         options.add_argument('--window-size=1920,1080')
         options.add_argument('--start-maximized')
         
-        # استخدام undetected-chromedriver بدل selenium العادي
-        driver = uc.Chrome(options=options, version_main=None, use_subprocess=True)
+        # تحديد الإصدار تلقائياً أو تركه None ليتعامل تلقائياً
+        if CHROME_VERSION:
+            driver = uc.Chrome(options=options, version_main=CHROME_VERSION, use_subprocess=True)
+        else:
+            driver = uc.Chrome(options=options, use_subprocess=True)
         
-        # تنفيذ إضافي لإخفاء الأتمتة
+        # إخفاء إضافي
         driver.execute_script("""
-            // إخفاء navigator.webdriver
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            
-            // إخفاء chrome.runtime
             window.chrome = {runtime: {}};
-            
-            // إخفاء plugins
             Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            
-            // إخفاء languages
             Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            
-            // إخفاء permissions
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) => (
                 parameters.name === 'notifications' ?
@@ -401,15 +411,13 @@ def ff(ccx, site, task_id=None):
         wait = WebDriverWait(driver, 20)
         driver.set_page_load_timeout(30)
         
-        # فتح صفحة checkout
         driver.get(checkout_url)
         time.sleep(random.uniform(2, 4))
         
-        # تمرير عشوائي لمحاكاة بشري
         random_scroll(driver)
         time.sleep(random.uniform(0.5, 1.5))
         
-        # ==================== 3. تعبئة الشحن بطريقة بشرية ====================
+        # ==================== 3. تعبئة الشحن ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
             human_mouse_move(driver, email_field)
@@ -456,8 +464,6 @@ def ff(ccx, site, task_id=None):
                     pass
             
             time.sleep(random.uniform(0.5, 1))
-            
-            # تمرير قبل الضغط على continue
             random_scroll(driver)
             time.sleep(random.uniform(0.3, 0.7))
             
@@ -470,7 +476,7 @@ def ff(ccx, site, task_id=None):
         except:
             return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
         
-        # ==================== 4. تعبئة الدفع بطريقة بشرية ====================
+        # ==================== 4. تعبئة الدفع ====================
         try:
             driver.switch_to.default_content()
             time.sleep(random.uniform(0.5, 1.5))
@@ -1152,9 +1158,7 @@ def ff(ccx, site, task_id=None):
 def home():
     """
     نقطة النهاية الرئيسية
-    
-    الاستخدام:
-    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
+    الاستخدام: /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
     """
     cc = request.args.get('cc')
     url = request.args.get('url')
@@ -1167,8 +1171,6 @@ def home():
         })
     
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
-    
-    # تنفيذ في Thread منفصل للتوازي
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1188,6 +1190,7 @@ def status():
         return jsonify({
             "active_tasks_count": len(active_tasks),
             "max_workers": MAX_WORKERS,
+            "chrome_version": CHROME_VERSION,
             "tasks": active_tasks
         })
 
@@ -1196,9 +1199,12 @@ def health():
     return jsonify({
         "status": "ok",
         "max_workers": MAX_WORKERS,
+        "chrome_version": CHROME_VERSION,
         "active_tasks": len(active_tasks)
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
+    logger.info(f"Starting server on port {port}")
+    logger.info(f"Chrome version detected: {CHROME_VERSION}")
     app.run(host='0.0.0.0', port=port, threaded=True)
