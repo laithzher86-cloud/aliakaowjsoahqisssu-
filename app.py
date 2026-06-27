@@ -1,10 +1,9 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية + بروكسي Extension
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية + بروكسيات متعددة
 import time
 import re
 import json
 import requests
 import os
-import shutil
 import subprocess
 from urllib.parse import urljoin
 import undetected_chromedriver as uc
@@ -37,13 +36,54 @@ active_tasks_lock = threading.Lock()
 # ==================== قائمة البروكسيات ====================
 PROXY_LIST = [
     {"host": "px440401.pointtoserver.com", "port": "10780", "user": "purevpn0s8732217", "pass": "i67s60ep"},
+    {"host": "192.144.26.139", "port": "8800", "user": "207273", "pass": "YXn4KChV"},
+    {"host": "177.234.142.34", "port": "8800", "user": "207273", "pass": "YXn4KChV"},
+    {"host": "192.144.26.7", "port": "8800", "user": "207273", "pass": "YXn4KChV"},
+    {"host": "192.144.26.182", "port": "8800", "user": "207273", "pass": "YXn4KChV"},
+    {"host": "177.234.142.110", "port": "8800", "user": "207273", "pass": "YXn4KChV"},
+    {"host": "38.154.127.188", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "38.154.127.189", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "192.186.190.226", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "38.154.127.233", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "192.186.190.229", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "192.186.190.236", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "192.186.190.252", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "38.154.127.208", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "38.154.127.214", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "192.186.190.225", "port": "8800", "user": "207274", "pass": "bv5KcH7JVR"},
+    {"host": "107.175.80.4", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.92.196", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.92.245", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.92.197", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.80.43", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.80.2", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.80.1", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.92.244", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.80.54", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "107.175.92.242", "port": "8800", "user": "207276", "pass": "gFuY3QqABfF"},
+    {"host": "195.242.209.13", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "195.242.209.223", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "167.160.171.193", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "167.160.171.51", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "195.242.209.205", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "167.160.171.139", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "195.242.209.142", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "167.160.171.234", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "195.242.209.18", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
+    {"host": "167.160.171.116", "port": "8800", "user": "207295", "pass": "hwst5RWh4"},
 ]
 
-def get_random_proxy():
-    return random.choice(PROXY_LIST)
+proxy_counter = 0
+proxy_lock = threading.Lock()
+
+def get_next_proxy():
+    global proxy_counter
+    with proxy_lock:
+        proxy = PROXY_LIST[proxy_counter % len(PROXY_LIST)]
+        proxy_counter += 1
+        return proxy
 
 def get_chrome_major_version():
-    """اكتشاف إصدار Chrome المثبت تلقائياً"""
     try:
         result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
         version_str = result.stdout.strip()
@@ -71,9 +111,6 @@ def get_chrome_major_version():
     return None
 
 def create_driver_with_proxy(proxy_dict, task_id=None):
-    """
-    إنشاء متصفح undetected-chromedriver مع بروكسي
-    """
     proxy_host = proxy_dict['host']
     proxy_port = proxy_dict['port']
     proxy_user = proxy_dict['user']
@@ -117,20 +154,14 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
     chrome_version = get_chrome_major_version()
     
     if chrome_version:
-        logger.info(f"[{task_id}] Creating undetected Chrome {chrome_version} with proxy: {proxy_host}:{proxy_port}")
+        logger.info(f"[{task_id}] Chrome {chrome_version} | Proxy: {proxy_host}:{proxy_port}")
         driver = uc.Chrome(options=options, version_main=chrome_version, use_subprocess=True)
     else:
-        logger.info(f"[{task_id}] Creating undetected Chrome with auto version + proxy")
+        logger.info(f"[{task_id}] Chrome auto | Proxy: {proxy_host}:{proxy_port}")
         driver = uc.Chrome(options=options, use_subprocess=True)
     
-    # مصادقة البروكسي عبر CDP
     try:
         driver.execute_cdp_cmd('Network.enable', {})
-        driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {
-            'headers': {
-                'Proxy-Authorization': f'Basic {proxy_user}:{proxy_pass}'
-            }
-        })
     except:
         pass
     
@@ -241,19 +272,12 @@ MATCHED_ADDRESSES = [
 ]
 
 def generate_matched_shipping_data():
-    """
-    توليد بيانات شحن أمريكية متطابقة بالكامل
-    """
     address = random.choice(MATCHED_ADDRESSES).copy()
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
-    """
-    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
-    """
-    
     valid_codes = []
     for code in all_codes:
         is_excluded = False
@@ -310,7 +334,6 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     return None, None
 
 def human_type(element, text, driver):
-    """كتابة بشرية حرف حرف مع تأخيرات عشوائية"""
     try:
         element.click()
         time.sleep(random.uniform(0.2, 0.5))
@@ -328,7 +351,6 @@ def human_type(element, text, driver):
             pass
 
 def human_click(driver, element):
-    """نقر بشري مع حركة ماوس طبيعية"""
     try:
         actions = ActionChains(driver)
         actions.move_to_element(element)
@@ -342,7 +364,6 @@ def human_click(driver, element):
             pass
 
 def random_scroll(driver):
-    """تمرير عشوائي لمحاكاة بشري"""
     try:
         total_height = driver.execute_script("return document.body.scrollHeight")
         for _ in range(random.randint(2, 4)):
@@ -353,14 +374,6 @@ def random_scroll(driver):
         pass
 
 def ff(ccx, site, task_id=None):
-    """
-    دالة معالجة بطاقة واحدة وموقع واحد
-    تعمل بشكل مستقل تماماً - كل استدعاء له متصفحه الخاص
-    
-    ccx: رقم البطاقة|الشهر|السنة|cvv
-    site: رابط الموقع
-    task_id: معرف المهمة للتتبع
-    """
     
     if task_id:
         with active_tasks_lock:
@@ -392,10 +405,13 @@ def ff(ccx, site, task_id=None):
     order_number = None
     payment_status = None
     
+    # اختيار بروكسيين مختلفين
+    proxy_for_request = get_next_proxy()
+    proxy_for_browser = get_next_proxy()
+    
     # ==================== 1. جلب رابط الدفع ====================
     try:
-        proxy_dict = get_random_proxy()
-        proxy_url = f"http://{proxy_dict['user']}:{proxy_dict['pass']}@{proxy_dict['host']}:{proxy_dict['port']}"
+        proxy_url = f"http://{proxy_for_request['user']}:{proxy_for_request['pass']}@{proxy_for_request['host']}:{proxy_for_request['port']}"
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
@@ -406,6 +422,8 @@ def ff(ccx, site, task_id=None):
             'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription',
             'service', 'guarantee', 'support'
         ]
+        
+        logger.info(f"[{task_id}] Request proxy: {proxy_for_request['host']}:{proxy_for_request['port']}")
         
         r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=15)
         if r.status_code != 200:
@@ -459,19 +477,17 @@ def ff(ccx, site, task_id=None):
     # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
-        proxy_dict = get_random_proxy()
-        driver = create_driver_with_proxy(proxy_dict, task_id)
+        logger.info(f"[{task_id}] Browser proxy: {proxy_for_browser['host']}:{proxy_for_browser['port']}")
+        driver = create_driver_with_proxy(proxy_for_browser, task_id)
         
         wait = WebDriverWait(driver, 20)
         driver.set_page_load_timeout(30)
         
-        # تصفح الموقع أولاً بشكل بشري قبل الذهاب للدفع
         driver.get(site)
         time.sleep(random.uniform(2, 4))
         random_scroll(driver)
         time.sleep(random.uniform(1, 2))
         
-        # الذهاب لصفحة الدفع
         driver.get(checkout_url)
         time.sleep(random.uniform(2, 3))
         random_scroll(driver)
@@ -1078,8 +1094,6 @@ def ff(ccx, site, task_id=None):
                 
                 final_url = driver.current_url
             
-            # [Performance logs removed for Chrome 149 compatibility]
-            
             try:
                 final_url = driver.current_url
             except:
@@ -1140,7 +1154,8 @@ def ff(ccx, site, task_id=None):
                     "checkout_url": checkout_url,
                     "final_url": final_url,
                     "error": None,
-                    "task_id": task_id
+                    "task_id": task_id,
+                    "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
                 }
             else:
                 return {
@@ -1153,7 +1168,8 @@ def ff(ccx, site, task_id=None):
                     "checkout_url": checkout_url,
                     "final_url": final_url,
                     "error": "Code not found",
-                    "task_id": task_id
+                    "task_id": task_id,
+                    "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
                 }
         
         except Exception as e:
@@ -1174,7 +1190,8 @@ def ff(ccx, site, task_id=None):
                 "checkout_url": checkout_url,
                 "final_url": None,
                 "error": str(e),
-                "task_id": task_id
+                "task_id": task_id,
+                "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
             }
     
     except Exception as e:
@@ -1195,21 +1212,13 @@ def ff(ccx, site, task_id=None):
             "checkout_url": checkout_url,
             "final_url": None,
             "error": str(e),
-            "task_id": task_id
+            "task_id": task_id,
+            "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
         }
 
 # ==================== Routes ====================
 @app.route('/', methods=['GET'])
 def home():
-    """
-    نقطة النهاية الرئيسية
-    
-    الاستخدام:
-    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
-    
-    مثال:
-    /?cc=4918460118934875|08|2027|293&url=https://www.example.com
-    """
     cc = request.args.get('cc')
     url = request.args.get('url')
     
@@ -1221,7 +1230,6 @@ def home():
         })
     
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
-    
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1237,13 +1245,12 @@ def home():
 
 @app.route('/status', methods=['GET'])
 def status():
-    """
-    معرفة حالة جميع المهام النشطة
-    """
     with active_tasks_lock:
         return jsonify({
             "active_tasks_count": len(active_tasks),
             "max_workers": MAX_WORKERS,
+            "proxy_count": len(PROXY_LIST),
+            "proxy_index": proxy_counter % len(PROXY_LIST),
             "tasks": active_tasks
         })
 
@@ -1259,6 +1266,5 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    logger.info(f"Starting server on port {port}")
-    logger.info(f"Chrome version: {get_chrome_major_version()}")
+    logger.info(f"Server on port {port} | Proxies: {len(PROXY_LIST)} | Chrome: {get_chrome_major_version()}")
     app.run(host='0.0.0.0', port=port, threaded=True)
