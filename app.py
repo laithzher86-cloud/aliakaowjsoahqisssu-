@@ -23,8 +23,7 @@ app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 5
-REQUEST_TIMEOUT = 90
-TASK_QUEUE = queue.Queue()
+REQUEST_TIMEOUT = 120
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -169,106 +168,26 @@ def create_driver_with_proxy(proxy_dict, task_id=None):
 
 # ==================== نظام توليد عناوين أمريكية متطابقة ====================
 MATCHED_ADDRESSES = [
-    {
-        "first_name": "James", "last_name": "Smith", "full_name": "James Smith",
-        "address1": "1200 Main St", "city": "New York", "state": "New York", "zip": "10001",
-        "phone": "2125550101", "email_domain": "gmail.com"
-    },
-    {
-        "first_name": "Mary", "last_name": "Johnson", "full_name": "Mary Johnson",
-        "address1": "2500 Oak Ave", "city": "Los Angeles", "state": "California", "zip": "90001",
-        "phone": "2135550202", "email_domain": "yahoo.com"
-    },
-    {
-        "first_name": "Robert", "last_name": "Williams", "full_name": "Robert Williams",
-        "address1": "3800 Maple Dr", "city": "Chicago", "state": "Illinois", "zip": "60601",
-        "phone": "3125550303", "email_domain": "outlook.com"
-    },
-    {
-        "first_name": "Patricia", "last_name": "Brown", "full_name": "Patricia Brown",
-        "address1": "4500 Cedar Ln", "city": "Houston", "state": "Texas", "zip": "77001",
-        "phone": "7135550404", "email_domain": "hotmail.com"
-    },
-    {
-        "first_name": "John", "last_name": "Jones", "full_name": "John Jones",
-        "address1": "5200 Elm St", "city": "Phoenix", "state": "Arizona", "zip": "85001",
-        "phone": "6025550505", "email_domain": "protonmail.com"
-    },
-    {
-        "first_name": "Jennifer", "last_name": "Garcia", "full_name": "Jennifer Garcia",
-        "address1": "6800 Washington Ave", "city": "Philadelphia", "state": "Pennsylvania", "zip": "19101",
-        "phone": "2155550606", "email_domain": "icloud.com"
-    },
-    {
-        "first_name": "Michael", "last_name": "Miller", "full_name": "Michael Miller",
-        "address1": "7500 Park Ave", "city": "San Antonio", "state": "Texas", "zip": "78201",
-        "phone": "2105550707", "email_domain": "mail.com"
-    },
-    {
-        "first_name": "Linda", "last_name": "Davis", "full_name": "Linda Davis",
-        "address1": "8100 Lake Dr", "city": "San Diego", "state": "California", "zip": "92101",
-        "phone": "6195550808", "email_domain": "aol.com"
-    },
-    {
-        "first_name": "William", "last_name": "Rodriguez", "full_name": "William Rodriguez",
-        "address1": "9300 Hill St", "city": "Dallas", "state": "Texas", "zip": "75201",
-        "phone": "2145550909", "email_domain": "yandex.com"
-    },
-    {
-        "first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez",
-        "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301",
-        "phone": "5125551010", "email_domain": "zoho.com"
-    },
-    {
-        "first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez",
-        "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099",
-        "phone": "9045551111", "email_domain": "fastmail.com"
-    },
-    {
-        "first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez",
-        "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101",
-        "phone": "8175551212", "email_domain": "tutanota.com"
-    },
-    {
-        "first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson",
-        "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004",
-        "phone": "6145551313", "email_domain": "gmail.com"
-    },
-    {
-        "first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson",
-        "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201",
-        "phone": "7045551414", "email_domain": "yahoo.com"
-    },
-    {
-        "first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas",
-        "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101",
-        "phone": "4155551515", "email_domain": "outlook.com"
-    },
-    {
-        "first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor",
-        "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201",
-        "phone": "3175551616", "email_domain": "hotmail.com"
-    },
-    {
-        "first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore",
-        "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101",
-        "phone": "2065551717", "email_domain": "protonmail.com"
-    },
-    {
-        "first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson",
-        "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201",
-        "phone": "3035551818", "email_domain": "icloud.com"
-    },
-    {
-        "first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin",
-        "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001",
-        "phone": "2025551919", "email_domain": "mail.com"
-    },
-    {
-        "first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee",
-        "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101",
-        "phone": "6175552020", "email_domain": "aol.com"
-    },
+    {"first_name": "James", "last_name": "Smith", "full_name": "James Smith", "address1": "1200 Main St", "city": "New York", "state": "New York", "zip": "10001", "phone": "2125550101", "email_domain": "gmail.com"},
+    {"first_name": "Mary", "last_name": "Johnson", "full_name": "Mary Johnson", "address1": "2500 Oak Ave", "city": "Los Angeles", "state": "California", "zip": "90001", "phone": "2135550202", "email_domain": "yahoo.com"},
+    {"first_name": "Robert", "last_name": "Williams", "full_name": "Robert Williams", "address1": "3800 Maple Dr", "city": "Chicago", "state": "Illinois", "zip": "60601", "phone": "3125550303", "email_domain": "outlook.com"},
+    {"first_name": "Patricia", "last_name": "Brown", "full_name": "Patricia Brown", "address1": "4500 Cedar Ln", "city": "Houston", "state": "Texas", "zip": "77001", "phone": "7135550404", "email_domain": "hotmail.com"},
+    {"first_name": "John", "last_name": "Jones", "full_name": "John Jones", "address1": "5200 Elm St", "city": "Phoenix", "state": "Arizona", "zip": "85001", "phone": "6025550505", "email_domain": "protonmail.com"},
+    {"first_name": "Jennifer", "last_name": "Garcia", "full_name": "Jennifer Garcia", "address1": "6800 Washington Ave", "city": "Philadelphia", "state": "Pennsylvania", "zip": "19101", "phone": "2155550606", "email_domain": "icloud.com"},
+    {"first_name": "Michael", "last_name": "Miller", "full_name": "Michael Miller", "address1": "7500 Park Ave", "city": "San Antonio", "state": "Texas", "zip": "78201", "phone": "2105550707", "email_domain": "mail.com"},
+    {"first_name": "Linda", "last_name": "Davis", "full_name": "Linda Davis", "address1": "8100 Lake Dr", "city": "San Diego", "state": "California", "zip": "92101", "phone": "6195550808", "email_domain": "aol.com"},
+    {"first_name": "William", "last_name": "Rodriguez", "full_name": "William Rodriguez", "address1": "9300 Hill St", "city": "Dallas", "state": "Texas", "zip": "75201", "phone": "2145550909", "email_domain": "yandex.com"},
+    {"first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez", "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301", "phone": "5125551010", "email_domain": "zoho.com"},
+    {"first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez", "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099", "phone": "9045551111", "email_domain": "fastmail.com"},
+    {"first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez", "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101", "phone": "8175551212", "email_domain": "tutanota.com"},
+    {"first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson", "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004", "phone": "6145551313", "email_domain": "gmail.com"},
+    {"first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson", "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201", "phone": "7045551414", "email_domain": "yahoo.com"},
+    {"first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas", "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101", "phone": "4155551515", "email_domain": "outlook.com"},
+    {"first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor", "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201", "phone": "3175551616", "email_domain": "hotmail.com"},
+    {"first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore", "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101", "phone": "2065551717", "email_domain": "protonmail.com"},
+    {"first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson", "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201", "phone": "3035551818", "email_domain": "icloud.com"},
+    {"first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin", "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001", "phone": "2025551919", "email_domain": "mail.com"},
+    {"first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee", "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101", "phone": "6175552020", "email_domain": "aol.com"},
 ]
 
 def generate_matched_shipping_data():
@@ -403,9 +322,8 @@ def ff(ccx, site, task_id=None):
     checkout_url = None
     final_url = None
     order_number = None
-    payment_status = None
     
-    # اختيار بروكسيين مختلفين
+    # اختيار بروكسيين
     proxy_for_request = get_next_proxy()
     proxy_for_browser = get_next_proxy()
     
@@ -417,11 +335,7 @@ def ff(ccx, site, task_id=None):
         s = requests.Session()
         s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
-        digital_keywords = [
-            'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
-            'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription',
-            'service', 'guarantee', 'support'
-        ]
+        digital_keywords = ['worry-free', 'protection', 'insurance', 'warranty', 'digital', 'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription', 'service', 'guarantee', 'support']
         
         logger.info(f"[{task_id}] Request proxy: {proxy_for_request['host']}:{proxy_for_request['port']}")
         
@@ -450,12 +364,7 @@ def ff(ccx, site, task_id=None):
                 price = float(v.get('price', 0))
                 available = v.get('available', True)
                 if price > 0 and available and price >= 1.0:
-                    shippable_products.append({
-                        'title': p.get('title'),
-                        'price': price,
-                        'variant_id': v.get('id'),
-                        'handle': p.get('handle')
-                    })
+                    shippable_products.append({'title': p.get('title'), 'price': price, 'variant_id': v.get('id'), 'handle': p.get('handle')})
         
         if not shippable_products:
             return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
@@ -495,15 +404,36 @@ def ff(ccx, site, task_id=None):
         
         # ==================== 3. تعبئة الشحن ====================
         try:
-            email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
+            email_field = None
+            email_selectors = [
+                (By.ID, "email"),
+                (By.NAME, "email"),
+                (By.CSS_SELECTOR, "#email"),
+                (By.CSS_SELECTOR, "[name='email']"),
+                (By.CSS_SELECTOR, "input[type='email']"),
+                (By.CSS_SELECTOR, "[placeholder*='email' i]"),
+            ]
+            
+            for by, selector in email_selectors:
+                try:
+                    email_field = wait.until(EC.presence_of_element_located((by, selector)))
+                    if email_field and email_field.is_displayed():
+                        logger.info(f"[{task_id}] Email field found: {by}={selector}")
+                        break
+                except:
+                    continue
+            
+            if not email_field:
+                logger.error(f"[{task_id}] Email field not found")
+                return {"success": False, "code": None, "error": "Email field not found on page", "task_id": task_id}
+            
             human_click(driver, email_field)
             human_type(email_field, shipping_data["email"], driver)
             time.sleep(random.uniform(1.5, 2.5))
             
             try:
                 country_select = driver.find_element(By.NAME, "countryCode")
-                current_country = country_select.get_attribute('value')
-                if current_country != "US":
+                if country_select.get_attribute('value') != "US":
                     Select(country_select).select_by_value("US")
                     time.sleep(random.uniform(0.5, 1))
             except:
@@ -520,10 +450,24 @@ def ff(ccx, site, task_id=None):
             
             for field_name, value in fields.items():
                 try:
-                    element = wait.until(EC.presence_of_element_located((By.NAME, field_name)))
-                    human_click(driver, element)
-                    human_type(element, value, driver)
-                    time.sleep(random.uniform(0.5, 1.5))
+                    element = None
+                    field_selectors = [
+                        (By.NAME, field_name),
+                        (By.CSS_SELECTOR, f"[name='{field_name}']"),
+                        (By.ID, field_name),
+                    ]
+                    for by, sel in field_selectors:
+                        try:
+                            element = wait.until(EC.presence_of_element_located((by, sel)))
+                            if element and element.is_displayed():
+                                break
+                        except:
+                            continue
+                    
+                    if element:
+                        human_click(driver, element)
+                        human_type(element, value, driver)
+                        time.sleep(random.uniform(0.5, 1.5))
                 except:
                     pass
             
@@ -544,13 +488,32 @@ def ff(ccx, site, task_id=None):
             random_scroll(driver)
             time.sleep(random.uniform(0.5, 1))
             
-            continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
-            human_click(driver, continue_btn)
-            time.sleep(random.uniform(3, 5))
+            continue_btn = None
+            btn_selectors = [
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.XPATH, "//button[contains(text(), 'Continue')]"),
+                (By.XPATH, "//button[contains(text(), 'Continue to shipping')]"),
+                (By.XPATH, "//button[contains(text(), 'Continue to payment')]"),
+            ]
+            
+            for by, sel in btn_selectors:
+                try:
+                    continue_btn = wait.until(EC.element_to_be_clickable((by, sel)))
+                    if continue_btn and continue_btn.is_displayed():
+                        break
+                except:
+                    continue
+            
+            if continue_btn:
+                human_click(driver, continue_btn)
+                time.sleep(random.uniform(3, 5))
+            else:
+                logger.error(f"[{task_id}] Continue button not found")
+                return {"success": False, "code": None, "error": "Continue button not found", "task_id": task_id}
             
         except Exception as e:
             logger.error(f"[{task_id}] Shipping fill error: {str(e)}")
-            return {"success": False, "code": None, "error": "Shipping fill failed", "task_id": task_id}
+            return {"success": False, "code": None, "error": f"Shipping fill failed: {str(e)}", "task_id": task_id}
         
         # ==================== 4. تعبئة الدفع ====================
         try:
@@ -578,55 +541,27 @@ def ff(ccx, site, task_id=None):
                         input_id = (input_elem.get_attribute('id') or '').lower()
                         name_attr = (input_elem.get_attribute('name') or '').lower()
                         
-                        if not card_filled and (data_field == 'number' or 'card number' in placeholder or autocomplete == 'cc-number' or 'cardnumber' in name_attr or 'number' in input_id):
+                        if not card_filled and ('number' in data_field or 'card number' in placeholder or 'cc-number' in autocomplete or 'cardnumber' in name_attr or 'number' in input_id):
                             human_click(driver, input_elem)
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["number"])
+                            driver.execute_script("arguments[0].value = ''; arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', {bubbles: true})); arguments[0].dispatchEvent(new Event('change', {bubbles: true})); arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));", input_elem, card_data["number"])
                             card_filled = True
                             time.sleep(random.uniform(0.5, 1))
                         
-                        elif not expiry_filled and (data_field == 'expiry' or 'expiry' in placeholder or autocomplete == 'cc-exp' or 'exp-date' in name_attr or 'expiry' in input_id):
+                        elif not expiry_filled and ('expiry' in data_field or 'expiry' in placeholder or 'cc-exp' in autocomplete or 'exp-date' in name_attr or 'expiry' in input_id):
                             human_click(driver, input_elem)
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["expiry"])
+                            driver.execute_script("arguments[0].value = ''; arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', {bubbles: true})); arguments[0].dispatchEvent(new Event('change', {bubbles: true})); arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));", input_elem, card_data["expiry"])
                             expiry_filled = True
                             time.sleep(random.uniform(0.5, 1))
                         
-                        elif not cvv_filled and (data_field == 'cvv' or 'cvv' in placeholder or autocomplete == 'cc-csc' or 'verification_value' in name_attr or 'cvc' in input_id or 'cvv' in input_id):
+                        elif not cvv_filled and ('cvv' in data_field or 'cvv' in placeholder or 'cc-csc' in autocomplete or 'cvc' in input_id or 'cvv' in input_id):
                             human_click(driver, input_elem)
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["cvv"])
+                            driver.execute_script("arguments[0].value = ''; arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', {bubbles: true})); arguments[0].dispatchEvent(new Event('change', {bubbles: true})); arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));", input_elem, card_data["cvv"])
                             cvv_filled = True
                             time.sleep(random.uniform(0.5, 1))
                         
-                        elif not name_filled and (data_field == 'name' or 'name' in placeholder or autocomplete == 'cc-name' or 'cardholder' in name_attr or 'cc-name' in name_attr):
+                        elif not name_filled and ('name' in data_field or 'name' in placeholder or 'cc-name' in autocomplete or 'cardholder' in name_attr):
                             human_click(driver, input_elem)
-                            driver.execute_script("""
-                                arguments[0].focus();
-                                arguments[0].value = '';
-                                arguments[0].value = arguments[1];
-                                arguments[0].dispatchEvent(new Event('input', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
-                                arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));
-                            """, input_elem, card_data["name"])
+                            driver.execute_script("arguments[0].value = ''; arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', {bubbles: true})); arguments[0].dispatchEvent(new Event('change', {bubbles: true})); arguments[0].dispatchEvent(new Event('blur', {bubbles: true}));", input_elem, card_data["name"])
                             name_filled = True
                             time.sleep(random.uniform(0.5, 1))
                     
@@ -652,57 +587,23 @@ def ff(ccx, site, task_id=None):
             window.graphqlResponses = [];
             window.allResponses = [];
             window.pollForReceiptResponses = [];
-            window.pageUrls = [];
             
             var originalFetch = window.fetch;
             window.fetch = function(url, options) {
-                var self = this;
-                var args = arguments;
-                
-                return originalFetch.apply(self, args).then(function(response) {
+                return originalFetch.apply(this, arguments).then(function(response) {
                     var clone = response.clone();
                     var responseUrl = url;
                     var requestBody = null;
-                    
-                    if (options && options.body) {
-                        try {
-                            requestBody = options.body;
-                        } catch(e) {}
-                    }
-                    
+                    if (options && options.body) { try { requestBody = options.body; } catch(e) {} }
                     clone.text().then(function(text) {
-                        var data = {
-                            url: responseUrl,
-                            body: text,
-                            requestBody: requestBody,
-                            timestamp: new Date().toISOString()
-                        };
-                        
+                        var data = {url: responseUrl, body: text, requestBody: requestBody, timestamp: new Date().toISOString()};
                         window.allResponses.push(data);
-                        
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
-                            
                             var isProposal = false;
-                            if (requestBody) {
-                                try {
-                                    var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'Proposal') {
-                                        isProposal = true;
-                                    }
-                                } catch(e) {}
-                            }
-                            
+                            if (requestBody) { try { var p = JSON.parse(requestBody); if (p.operationName === 'Proposal') isProposal = true; } catch(e) {} }
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                
-                                if (requestBody) {
-                                    try {
-                                        var parsedBody2 = JSON.parse(requestBody);
-                                        if (parsedBody2.operationName === 'PollForReceipt') {
-                                            window.pollForReceiptResponses.push(data);
-                                        }
-                                    } catch(e) {}
-                                }
+                                if (requestBody) { try { var p2 = JSON.parse(requestBody); if (p2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data); } catch(e) {} }
                             }
                         }
                     });
@@ -712,65 +613,24 @@ def ff(ccx, site, task_id=None):
             
             var originalXHROpen = XMLHttpRequest.prototype.open;
             var originalXHRSend = XMLHttpRequest.prototype.send;
-            
-            XMLHttpRequest.prototype.open = function(method, url) {
-                this._url = url;
-                this._method = method;
-                return originalXHROpen.apply(this, arguments);
-            };
-            
+            XMLHttpRequest.prototype.open = function(method, url) { this._url = url; return originalXHROpen.apply(this, arguments); };
             XMLHttpRequest.prototype.send = function(body) {
                 var self = this;
-                var requestBody = body;
-                
                 this.addEventListener('load', function() {
                     try {
-                        var text = self.responseText;
-                        var responseUrl = self._url;
-                        
-                        var data = {
-                            url: responseUrl,
-                            body: text,
-                            requestBody: requestBody,
-                            timestamp: new Date().toISOString()
-                        };
-                        
+                        var data = {url: self._url, body: self.responseText, requestBody: body, timestamp: new Date().toISOString()};
                         window.allResponses.push(data);
-                        
-                        if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
-                            
+                        if (self._url && self._url.includes('/checkouts/internal/graphql/persisted')) {
                             var isProposal = false;
-                            if (requestBody) {
-                                try {
-                                    var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'Proposal') {
-                                        isProposal = true;
-                                    }
-                                } catch(e) {}
-                            }
-                            
+                            if (body) { try { var p = JSON.parse(body); if (p.operationName === 'Proposal') isProposal = true; } catch(e) {} }
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                
-                                if (requestBody) {
-                                    try {
-                                        var parsedBody2 = JSON.parse(requestBody);
-                                        if (parsedBody2.operationName === 'PollForReceipt') {
-                                            window.pollForReceiptResponses.push(data);
-                                        }
-                                    } catch(e) {}
-                                }
+                                if (body) { try { var p2 = JSON.parse(body); if (p2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data); } catch(e) {} }
                             }
                         }
                     } catch(e) {}
                 });
                 return originalXHRSend.apply(this, arguments);
-            };
-            
-            var originalPushState = history.pushState;
-            history.pushState = function(state, title, url) {
-                window.pageUrls.push(url);
-                return originalPushState.apply(this, arguments);
             };
             """
             driver.execute_script(script)
@@ -782,18 +642,18 @@ def ff(ccx, site, task_id=None):
             random_scroll(driver)
             time.sleep(random.uniform(0.5, 1))
             
+            pay_button = None
             pay_selectors = [
-                "//button[contains(text(), 'Pay now')]",
-                "//button[contains(text(), 'Pay') and not(contains(text(), 'Pal'))]",
-                "//button[contains(text(), 'Complete order')]",
-                "//button[contains(text(), 'Place order')]",
-                "//button[@type='submit']"
+                (By.XPATH, "//button[contains(text(), 'Pay now')]"),
+                (By.XPATH, "//button[contains(text(), 'Pay') and not(contains(text(), 'Pal'))]"),
+                (By.XPATH, "//button[contains(text(), 'Complete order')]"),
+                (By.XPATH, "//button[contains(text(), 'Place order')]"),
+                (By.CSS_SELECTOR, "button[type='submit']"),
             ]
             
-            pay_button = None
-            for xpath in pay_selectors:
+            for by, sel in pay_selectors:
                 try:
-                    buttons = driver.find_elements(By.XPATH, xpath)
+                    buttons = driver.find_elements(by, sel)
                     for button in buttons:
                         if button.is_displayed() and button.is_enabled():
                             pay_button = button
@@ -808,12 +668,12 @@ def ff(ccx, site, task_id=None):
                 logger.info(f"[{task_id}] Pay button clicked")
             else:
                 driver.execute_script("""
-                    var buttons = document.querySelectorAll('button[type="submit"]');
+                    var buttons = document.querySelectorAll('button, input[type="submit"]');
                     for (var i = 0; i < buttons.length; i++) {
-                        var text = buttons[i].textContent || '';
-                        if (text.includes('Pay now') || text.includes('Pay') || text.includes('Complete') || text.includes('Place order')) {
+                        var text = (buttons[i].textContent || buttons[i].value || '').toLowerCase();
+                        if (text.includes('pay') || text.includes('complete') || text.includes('place') || text.includes('order')) {
                             buttons[i].click();
-                            return true;
+                            return;
                         }
                     }
                 """)
@@ -827,36 +687,21 @@ def ff(ccx, site, task_id=None):
             is_3ds = False
             order_confirmed = False
             order_number = None
-            payment_status = None
             
             excluded_codes = [
-                'REQUIRED_ARTIFACTS_UNAVAILABLE',
-                'PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT',
-                'BUYER_IDENTITY_MISSING_CONTACT_METHOD',
-                'PAYMENTS_ADDRESS1_REQUIRED',
-                'PAYMENTS_LAST_NAME_REQUIRED',
-                'PAYMENTS_FIRST_NAME_REQUIRED',
-                'PAYMENTS_ZONE_REQUIRED_FOR_COUNTRY',
-                'PAYMENTS_POSTAL_CODE_REQUIRED',
-                'DELIVERY_ZONE_REQUIRED_FOR_COUNTRY',
-                'DELIVERY_POSTAL_CODE_REQUIRED',
-                'PAYMENTS_CITY_REQUIRED',
-                'WAITING_PENDING_TERMS',
-                'Free Postal Shipping',
-                'UPS',
-                'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE',
-                'First',
-                'by-items',
-                'Standard',
-                'Priority',
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
-                'GroundAdvantage',
-                'MediaMail'
+                'REQUIRED_ARTIFACTS_UNAVAILABLE', 'PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT',
+                'BUYER_IDENTITY_MISSING_CONTACT_METHOD', 'PAYMENTS_ADDRESS1_REQUIRED',
+                'PAYMENTS_LAST_NAME_REQUIRED', 'PAYMENTS_FIRST_NAME_REQUIRED',
+                'PAYMENTS_ZONE_REQUIRED_FOR_COUNTRY', 'PAYMENTS_POSTAL_CODE_REQUIRED',
+                'DELIVERY_ZONE_REQUIRED_FOR_COUNTRY', 'DELIVERY_POSTAL_CODE_REQUIRED',
+                'PAYMENTS_CITY_REQUIRED', 'WAITING_PENDING_TERMS', 'Free Postal Shipping',
+                'UPS', 'DELIVERY_PHONE_NUMBER_REQUIRED', 'Economy',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 'First', 'by-items',
+                'Standard', 'Priority', 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
+                'GroundAdvantage', 'MediaMail'
             ]
             
-            for attempt in range(12):
+            for attempt in range(15):
                 time.sleep(random.uniform(1.5, 2.5))
                 
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
@@ -864,12 +709,10 @@ def ff(ccx, site, task_id=None):
                 current_url = driver.current_url
                 final_url = current_url
                 
-                page_urls = driver.execute_script("return window.pageUrls || [];")
-                
                 if '/thank_you' in current_url:
                     order_confirmed = True
                     found_code = 'ORDER_CONFIRMED'
-                    response_result = 'Order confirmed - Thank you for your purchase!'
+                    response_result = 'Order confirmed'
                     order_match = re.search(r'order_([A-Z0-9]+)', current_url, re.IGNORECASE)
                     if order_match:
                         order_number = order_match.group(1)
@@ -877,217 +720,47 @@ def ff(ccx, site, task_id=None):
                 
                 try:
                     page_source = driver.page_source
-                    if 'thank-you' in current_url or 'thank_you' in current_url:
+                    if 'thank you for your order' in page_source.lower() or 'your order is confirmed' in page_source.lower():
                         order_confirmed = True
                         found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if 'Your order is confirmed' in page_source or 'Thank you for your purchase!' in page_source:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        response_result = 'Order confirmed'
                         order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
                         if order_match:
                             order_number = order_match.group(1)
                         break
-                    
-                    if 'Thank you for your order' in page_source or 'thank you for your order' in page_source.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                    if order_match:
-                        order_number = order_match.group(1)
-                        
                 except:
                     pass
                 
-                for resp in poll_responses:
+                for resp in poll_responses + graphql_responses:
                     body = resp.get('body', '')
-                    url = resp.get('url', '')
-                    
                     if not body:
                         continue
+                    
+                    if 'thank_you' in body.lower() or 'order confirmed' in body.lower():
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        break
+                    
+                    if 'CompletePaymentChallenge' in body:
+                        is_3ds = True
+                        found_code = '3DS_REQUIRED'
+                        found_typename = 'CompletePaymentChallenge'
+                        break
                     
                     pattern = r'"code"\s*:\s*"([^"]+)"'
-                    matches = re.findall(pattern, body, re.IGNORECASE)
-                    for code in matches:
-                        if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in code:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and code not in all_codes:
-                                all_codes.append(code)
+                    for code in re.findall(pattern, body, re.IGNORECASE):
+                        if len(code) > 3 and len(code) < 80 and ' ' not in code and code not in all_codes:
+                            all_codes.append(code)
                     
                     if '__typename' in body:
-                        pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                        matches = re.findall(pattern, body, re.IGNORECASE)
-                        for typename in matches:
-                            if len(typename) > 3 and len(typename) < 80:
-                                if typename not in ['Query', 'Mutation', 'Subscription']:
-                                    if typename not in all_typenames:
-                                        all_typenames.append(typename)
+                        for typename in re.findall(r'"__typename"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
+                            if typename not in ['Query', 'Mutation', 'Subscription'] and typename not in all_typenames:
+                                all_typenames.append(typename)
                     
-                    if 'processingError' in body:
-                        try:
-                            data = json.loads(body)
-                            err = data.get('data', {}).get('receipt', {}).get('processingError', {})
-                            if err:
-                                code = err.get('code')
-                                if code and len(code) > 3 and len(code) < 80:
-                                    is_excluded = False
-                                    for excluded in excluded_codes:
-                                        if excluded in code:
-                                            is_excluded = True
-                                            break
-                                    if not is_excluded and code not in all_codes:
-                                        all_codes.append(code)
-                                typename = err.get('__typename')
-                                if typename and typename not in all_typenames:
-                                    all_typenames.append(typename)
-                                message = err.get('message', '')
-                                if message:
-                                    response_result = message
-                        except:
-                            pass
-                    
-                    if 'errors' in body:
-                        try:
-                            data = json.loads(body)
-                            errors = data.get('errors', [])
-                            for error in errors:
-                                if isinstance(error, dict):
-                                    code = error.get('code')
-                                    if code and len(code) > 3 and len(code) < 80:
-                                        is_excluded = False
-                                        for excluded in excluded_codes:
-                                            if excluded in code:
-                                                is_excluded = True
-                                                break
-                                        if not is_excluded and code not in all_codes:
-                                            all_codes.append(code)
-                                    typename = error.get('__typename')
-                                    if typename and typename not in all_typenames:
-                                        all_typenames.append(typename)
-                                    message = error.get('message', '')
-                                    if message:
-                                        response_result = message
-                        except:
-                            pass
-                
-                for resp in graphql_responses:
-                    body = resp.get('body', '')
-                    url = resp.get('url', '')
-                    
-                    if not body:
-                        continue
-                    
-                    if '/thank_you' in body or 'thank_you' in url:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if 'Your order is confirmed' in body or 'Order confirmed' in body or 'order confirmed' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if 'Thank you for your order' in body or 'thank you for your order' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if '/persisted' in url and 'CompletePaymentChallenge' in body:
-                        try:
-                            data = json.loads(body)
-                            if 'data' in data and 'receipt' in data['data']:
-                                receipt = data['data']['receipt']
-                                if 'action' in receipt:
-                                    action = receipt['action']
-                                    if action.get('__typename') == 'CompletePaymentChallenge':
-                                        is_3ds = True
-                                        found_code = '3DS_REQUIRED'
-                                        found_typename = 'CompletePaymentChallenge'
-                                        response_result = '3DS Secure required - Please complete authentication'
-                                        break
-                        except:
-                            pass
-                    
-                    if not all_codes:
-                        pattern = r'"code"\s*:\s*"([^"]+)"'
-                        matches = re.findall(pattern, body, re.IGNORECASE)
-                        for code in matches:
-                            if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                is_excluded = False
-                                for excluded in excluded_codes:
-                                    if excluded in code:
-                                        is_excluded = True
-                                        break
-                                if not is_excluded and code not in all_codes:
-                                    all_codes.append(code)
-                    
-                    if not all_typenames:
-                        if '__typename' in body:
-                            pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                            matches = re.findall(pattern, body, re.IGNORECASE)
-                            for typename in matches:
-                                if len(typename) > 3 and len(typename) < 80:
-                                    if typename not in ['Query', 'Mutation', 'Subscription']:
-                                        if typename not in all_typenames:
-                                            all_typenames.append(typename)
-                    
-                    pattern = r'"status"\s*:\s*"([^"]+)"'
-                    matches = re.findall(pattern, body, re.IGNORECASE)
-                    for status in matches:
-                        if len(status) > 3 and len(status) < 80 and ' ' not in status:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in status:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and status not in all_codes:
-                                all_codes.append(status)
-                    
-                    if '/authentications/' in body or 'AUTHORIZATION_ERROR' in body:
-                        if '3DS_REQUIRED' not in all_codes:
-                            all_codes.append('3DS_REQUIRED')
-                            response_result = '3DS Secure required'
-                    
-                    if 'INCORRECT_ZIP' in body:
-                        if 'INCORRECT_ZIP' not in all_codes:
-                            all_codes.append('INCORRECT_ZIP')
-                            response_result = 'Incorrect ZIP'
-                    if 'INSUFFICIENT_FUNDS' in body:
-                        if 'INSUFFICIENT_FUNDS' not in all_codes:
-                            all_codes.append('INSUFFICIENT_FUNDS')
-                            response_result = 'Insufficient funds'
-                    if 'INCORRECT_CVC' in body:
-                        if 'INCORRECT_CVC' not in all_codes:
-                            all_codes.append('INCORRECT_CVC')
-                            response_result = 'INCORRECT_CVC'
+                    body_upper = body.upper()
+                    for kw in ['INCORRECT_ZIP', 'INSUFFICIENT_FUNDS', 'INCORRECT_CVC', 'CARD_DECLINED', 'FRAUD_SUSPECTED']:
+                        if kw in body_upper and kw not in all_codes:
+                            all_codes.append(kw)
                 
                 if found_code or order_confirmed:
                     break
@@ -1106,115 +779,46 @@ def ff(ccx, site, task_id=None):
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
                 result_typename = 'OrderConfirmed'
-                if order_number:
-                    response_result = f'Order confirmed - Order #{order_number}'
-                else:
-                    response_result = 'Order confirmed - Thank you for your purchase!'
+                response_result = f'Order confirmed{f" - Order #{order_number}" if order_number else ""}'
             elif is_3ds or found_code == '3DS_REQUIRED':
                 result_code = '3DS_REQUIRED'
                 result_typename = found_typename or 'CompletePaymentChallenge'
-            elif found_code == 'SUCCESS':
-                result_code = 'SUCCESS'
-                result_typename = found_typename
             elif found_code and found_code not in excluded_codes:
                 result_code = found_code
                 result_typename = found_typename
             else:
-                extracted_code, extracted_typename = extract_code_underscore_priority(
-                    all_codes, all_typenames, excluded_codes
-                )
-                
-                if extracted_code:
-                    result_code = extracted_code
-                    result_typename = extracted_typename if extracted_typename else found_typename
-                elif all_codes:
-                    result_code = all_codes[0]
-                    result_typename = all_typenames[0] if all_typenames else None
-                elif all_typenames:
-                    result_code = all_typenames[0]
-                    result_typename = all_typenames[0]
-                else:
-                    result_code = None
-                    result_typename = None
+                extracted_code, extracted_typename = extract_code_underscore_priority(all_codes, all_typenames, excluded_codes)
+                result_code = extracted_code or (all_codes[0] if all_codes else None) or (all_typenames[0] if all_typenames else None)
+                result_typename = extracted_typename
             
             if task_id:
                 with active_tasks_lock:
                     if task_id in active_tasks:
                         active_tasks[task_id]["status"] = "completed"
-                        active_tasks[task_id]["result"] = result_code
             
-            if result_code:
-                return {
-                    "success": True,
-                    "code": result_code,
-                    "typename": result_typename,
-                    "response": response_result,
-                    "price": total_amount,
-                    "order_number": order_number,
-                    "checkout_url": checkout_url,
-                    "final_url": final_url,
-                    "error": None,
-                    "task_id": task_id,
-                    "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
-                }
-            else:
-                return {
-                    "success": False,
-                    "code": None,
-                    "typename": None,
-                    "response": None,
-                    "price": total_amount,
-                    "order_number": None,
-                    "checkout_url": checkout_url,
-                    "final_url": final_url,
-                    "error": "Code not found",
-                    "task_id": task_id,
-                    "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
-                }
+            return {
+                "success": True if result_code else False,
+                "code": result_code,
+                "typename": result_typename,
+                "response": response_result,
+                "price": total_amount,
+                "order_number": order_number,
+                "checkout_url": checkout_url,
+                "final_url": final_url,
+                "error": None if result_code else "Code not found",
+                "task_id": task_id,
+                "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
+            }
         
         except Exception as e:
             if driver:
                 driver.quit()
-            if task_id:
-                with active_tasks_lock:
-                    if task_id in active_tasks:
-                        active_tasks[task_id]["status"] = "error"
-                        active_tasks[task_id]["error"] = str(e)
-            return {
-                "success": False,
-                "code": None,
-                "typename": None,
-                "response": None,
-                "price": total_amount,
-                "order_number": None,
-                "checkout_url": checkout_url,
-                "final_url": None,
-                "error": str(e),
-                "task_id": task_id,
-                "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
-            }
+            return {"success": False, "code": None, "error": str(e), "task_id": task_id}
     
     except Exception as e:
         if driver:
             driver.quit()
-        if task_id:
-            with active_tasks_lock:
-                if task_id in active_tasks:
-                    active_tasks[task_id]["status"] = "error"
-                    active_tasks[task_id]["error"] = str(e)
-        return {
-            "success": False,
-            "code": None,
-            "typename": None,
-            "response": None,
-            "price": total_amount,
-            "order_number": None,
-            "checkout_url": checkout_url,
-            "final_url": None,
-            "error": str(e),
-            "task_id": task_id,
-            "proxy_used": f"{proxy_for_browser['host']}:{proxy_for_browser['port']}"
-        }
+        return {"success": False, "code": None, "error": str(e), "task_id": task_id}
 
 # ==================== Routes ====================
 @app.route('/', methods=['GET'])
@@ -1223,11 +827,7 @@ def home():
     url = request.args.get('url')
     
     if not cc or not url:
-        return jsonify({
-            "success": False,
-            "code": None,
-            "error": "Missing cc or url parameters. Use /?cc=CARD&url=SITE"
-        })
+        return jsonify({"success": False, "code": None, "error": "Missing cc or url parameters"})
     
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
     future = executor.submit(ff, cc, url, task_id)
@@ -1236,12 +836,7 @@ def home():
         result = future.result(timeout=REQUEST_TIMEOUT)
         return jsonify(result)
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "code": None,
-            "error": f"Task timeout or error: {str(e)}",
-            "task_id": task_id
-        })
+        return jsonify({"success": False, "code": None, "error": f"Timeout: {str(e)}", "task_id": task_id})
 
 @app.route('/status', methods=['GET'])
 def status():
@@ -1250,8 +845,7 @@ def status():
             "active_tasks_count": len(active_tasks),
             "max_workers": MAX_WORKERS,
             "proxy_count": len(PROXY_LIST),
-            "proxy_index": proxy_counter % len(PROXY_LIST),
-            "tasks": active_tasks
+            "proxy_index": proxy_counter % len(PROXY_LIST)
         })
 
 @app.route('/health', methods=['GET'])
