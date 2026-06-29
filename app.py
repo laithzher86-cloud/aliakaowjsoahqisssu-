@@ -18,8 +18,7 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
-from hcaptcha_challenger import Agent, ChallengeType
-from hcaptcha_challenger import handle, register_driver
+from hcaptcha_challenger import Agent, ChallengeType, register_driver
 
 app = Flask(__name__)
 
@@ -225,8 +224,8 @@ def solve_captcha_and_retry(driver, wait, base_url, excluded_codes, task_id):
             debug=True
         )
         
-        # حل الكابتشا
-        success = handle(driver, agent)
+        # حل الكابتشا باستخدام agent.solve(driver)
+        success = agent.solve(driver)
         
         if success:
             logger.info(f"[{task_id}] CAPTCHA solved successfully!")
@@ -1212,12 +1211,23 @@ def ff(ccx, site, task_id=None):
                             response_result = 'INCORRECT_CVC'
                 
                 # فحص إذا تم اكتشاف كابتشا
-                if 'CAPTCHA_REQUIRED' in all_codes or 'captcha' in str(all_codes).lower() or 'captcha' in str(all_typenames).lower():
+                captcha_detected = False
+                for code in all_codes:
+                    if 'CAPTCHA' in code.upper() or 'captcha' in code.lower():
+                        captcha_detected = True
+                        break
+                
+                if not captcha_detected:
+                    for typename in all_typenames:
+                        if 'CAPTCHA' in typename.upper() or 'captcha' in typename.lower():
+                            captcha_detected = True
+                            break
+                
+                if captcha_detected or 'CAPTCHA_REQUIRED' in str(all_codes).upper() or 'captcha' in str(all_codes).lower():
                     logger.info(f"[{task_id}] CAPTCHA_REQUIRED detected in response - launching solver...")
                     captcha_result = solve_captcha_and_retry(driver, wait, base_url, excluded_codes, task_id)
                     
                     if captcha_result.get('captcha_solved'):
-                        # استخدام النتيجة الجديدة بعد حل الكابتشا
                         found_code = captcha_result.get('result_code')
                         found_typename = captcha_result.get('result_typename')
                         response_result = captcha_result.get('response_result')
