@@ -18,7 +18,8 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
-
+from user_agent import *
+usser=generate_user_agent()
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
@@ -258,7 +259,7 @@ def ff(ccx, site, task_id=None):
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        s.headers.update({'User-Agent':usser})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -266,7 +267,7 @@ def ff(ccx, site, task_id=None):
             'service', 'guarantee', 'support'
         ]
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=10)
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=190)
         if r.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to fetch products", "task_id": task_id}
         
@@ -682,7 +683,8 @@ def ff(ccx, site, task_id=None):
             'Priority', 
             'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
             'GroundAdvantage', 
-            'MediaMail'
+            'MediaMail',
+            'AddressLocalizationKeys'
            
              
             ]
