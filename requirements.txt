@@ -10,3 +10,4 @@ chromedriver_autoinstaller
 fake-useragent
 faker
 undetected-chromedriver
+user_agent
