@@ -12,3 +12,4 @@ faker
 undetected-chromedriver
 user_agent
 hcaptcha-challenger
+PyYAML
