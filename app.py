@@ -305,11 +305,11 @@ def ff(ccx, site, task_id=None):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, cookies=s.cookies, timeout=10)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies,  timeout=100)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, cookies=s.cookies, timeout=10)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies,timeout=100)
         checkout_url = response.url
         
     except Exception as e:
