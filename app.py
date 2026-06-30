@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية + حل كابتشا
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
 import time
 import re
 import json
@@ -18,20 +18,22 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
-from hcaptcha_challenger import Agent, ChallengeType, register_driver
-
+from user_agent import *
+usser=generate_user_agent()
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 5
-REQUEST_TIMEOUT = 120
+MAX_WORKERS = 10  # عدد الطلبات المتوازية اللي تشتغل بنفس الوقت
+REQUEST_TIMEOUT = 60
 TASK_QUEUE = queue.Queue()
 
+# منفذ العمليات المتوازية - هذا اللي يخلي الطلبات تشتغل بنفس الوقت
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# عداد لتتبع الطلبات النشطة
 active_tasks = {}
 active_tasks_lock = threading.Lock()
 
@@ -208,299 +210,6 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     
     return None, None
 
-def solve_captcha_and_retry(driver, wait, base_url, excluded_codes, task_id):
-    """
-    حل الكابتشا وإعادة محاولة الدفع واستخراج الكود
-    """
-    logger.info(f"[{task_id}] CAPTCHA detected - attempting to solve...")
-    
-    try:
-        # تسجيل driver مع hcaptcha_challenger
-        register_driver(driver)
-        
-        # تهيئة الوكيل
-        agent = Agent(
-            challenge_type=ChallengeType.IMAGE_LABEL_BINARY,
-            debug=True
-        )
-        
-        # حل الكابتشا باستخدام agent.solve(driver)
-        success = agent.solve(driver)
-        
-        if success:
-            logger.info(f"[{task_id}] CAPTCHA solved successfully!")
-            time.sleep(random.uniform(2, 4))
-            
-            # الضغط على زر الدفع مرة أخرى
-            driver.switch_to.default_content()
-            time.sleep(random.uniform(1, 2))
-            
-            pay_selectors = [
-                "//button[contains(text(), 'Pay now')]",
-                "//button[contains(text(), 'Pay') and not(contains(text(), 'Pal'))]",
-                "//button[contains(text(), 'Complete order')]",
-                "//button[contains(text(), 'Place order')]",
-                "//button[@type='submit']"
-            ]
-            
-            pay_button = None
-            for xpath in pay_selectors:
-                try:
-                    buttons = driver.find_elements(By.XPATH, xpath)
-                    for button in buttons:
-                        if button.is_displayed() and button.is_enabled():
-                            pay_button = button
-                            break
-                    if pay_button:
-                        break
-                except:
-                    continue
-            
-            if pay_button:
-                driver.execute_script("arguments[0].click();", pay_button)
-                logger.info(f"[{task_id}] Pay button clicked after captcha solve")
-            else:
-                driver.execute_script("""
-                    var buttons = document.querySelectorAll('button[type="submit"]');
-                    for (var i = 0; i < buttons.length; i++) {
-                        var text = buttons[i].textContent || '';
-                        if (text.includes('Pay now') || text.includes('Pay') || text.includes('Complete') || text.includes('Place order')) {
-                            buttons[i].click();
-                            return true;
-                        }
-                    }
-                """)
-                logger.info(f"[{task_id}] Fallback pay button after captcha solve")
-            
-            # انتظار واستخراج الكود من جديد
-            found_code = None
-            found_typename = None
-            all_codes = []
-            all_typenames = []
-            is_3ds = False
-            order_confirmed = False
-            order_number = None
-            response_result = None
-            
-            for attempt in range(15):
-                time.sleep(random.uniform(1.5, 2.5))
-                
-                poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
-                graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
-                current_url = driver.current_url
-                final_url = current_url
-                
-                if '/thank_you' in current_url:
-                    order_confirmed = True
-                    found_code = 'ORDER_CONFIRMED'
-                    response_result = 'Order confirmed - Thank you for your purchase!'
-                    order_match = re.search(r'order_([A-Z0-9]+)', current_url, re.IGNORECASE)
-                    if order_match:
-                        order_number = order_match.group(1)
-                    break
-                
-                try:
-                    page_source = driver.page_source
-                    if 'thank-you' in current_url or 'thank_you' in current_url:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        break
-                    
-                    if 'Your order is confirmed' in page_source or 'Thank you for your purchase!' in page_source:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if 'Thank you for your order' in page_source or 'thank you for your order' in page_source.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    order_match = re.search(r'Order #?([A-Z0-9]+)', page_source, re.IGNORECASE)
-                    if order_match:
-                        order_number = order_match.group(1)
-                        
-                except:
-                    pass
-                
-                for resp in poll_responses + graphql_responses:
-                    body = resp.get('body', '')
-                    url = resp.get('url', '')
-                    
-                    if not body:
-                        continue
-                    
-                    if '/thank_you' in body.lower() or 'order confirmed' in body.lower() or 'thank you for your order' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed'
-                        break
-                    
-                    if 'CompletePaymentChallenge' in body:
-                        is_3ds = True
-                        found_code = '3DS_REQUIRED'
-                        found_typename = 'CompletePaymentChallenge'
-                        response_result = '3DS Secure required'
-                        break
-                    
-                    pattern = r'"code"\s*:\s*"([^"]+)"'
-                    matches = re.findall(pattern, body, re.IGNORECASE)
-                    for code in matches:
-                        if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in code:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and code not in all_codes:
-                                all_codes.append(code)
-                    
-                    if '__typename' in body:
-                        pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                        matches = re.findall(pattern, body, re.IGNORECASE)
-                        for typename in matches:
-                            if len(typename) > 3 and len(typename) < 80:
-                                if typename not in ['Query', 'Mutation', 'Subscription']:
-                                    if typename not in all_typenames:
-                                        all_typenames.append(typename)
-                    
-                    if 'processingError' in body:
-                        try:
-                            data = json.loads(body)
-                            err = data.get('data', {}).get('receipt', {}).get('processingError', {})
-                            if err:
-                                code = err.get('code')
-                                if code and len(code) > 3 and len(code) < 80:
-                                    is_excluded = False
-                                    for excluded in excluded_codes:
-                                        if excluded in code:
-                                            is_excluded = True
-                                            break
-                                    if not is_excluded and code not in all_codes:
-                                        all_codes.append(code)
-                                typename = err.get('__typename')
-                                if typename and typename not in all_typenames:
-                                    all_typenames.append(typename)
-                                message = err.get('message', '')
-                                if message:
-                                    response_result = message
-                        except:
-                            pass
-                    
-                    if 'errors' in body:
-                        try:
-                            data = json.loads(body)
-                            errors = data.get('errors', [])
-                            for error in errors:
-                                if isinstance(error, dict):
-                                    code = error.get('code')
-                                    if code and len(code) > 3 and len(code) < 80:
-                                        is_excluded = False
-                                        for excluded in excluded_codes:
-                                            if excluded in code:
-                                                is_excluded = True
-                                                break
-                                        if not is_excluded and code not in all_codes:
-                                            all_codes.append(code)
-                                    typename = error.get('__typename')
-                                    if typename and typename not in all_typenames:
-                                        all_typenames.append(typename)
-                                    message = error.get('message', '')
-                                    if message:
-                                        response_result = message
-                        except:
-                            pass
-                    
-                    body_upper = body.upper()
-                    if 'INCORRECT_ZIP' in body_upper and 'INCORRECT_ZIP' not in all_codes:
-                        all_codes.append('INCORRECT_ZIP')
-                    if 'INSUFFICIENT_FUNDS' in body_upper and 'INSUFFICIENT_FUNDS' not in all_codes:
-                        all_codes.append('INSUFFICIENT_FUNDS')
-                    if 'INCORRECT_CVC' in body_upper and 'INCORRECT_CVC' not in all_codes:
-                        all_codes.append('INCORRECT_CVC')
-                    if 'CARD_DECLINED' in body_upper and 'CARD_DECLINED' not in all_codes:
-                        all_codes.append('CARD_DECLINED')
-                    if 'FRAUD' in body_upper and 'FRAUD_SUSPECTED' not in all_codes:
-                        all_codes.append('FRAUD_SUSPECTED')
-                
-                if found_code or order_confirmed or is_3ds:
-                    break
-                
-                final_url = current_url
-            
-            # تجميع النتيجة
-            if order_confirmed:
-                result_code = 'ORDER_CONFIRMED'
-                result_typename = 'OrderConfirmed'
-                response_result = f'Order confirmed{f" - Order #{order_number}" if order_number else ""}'
-            elif is_3ds or found_code == '3DS_REQUIRED':
-                result_code = '3DS_REQUIRED'
-                result_typename = found_typename or 'CompletePaymentChallenge'
-            elif found_code and found_code not in excluded_codes:
-                result_code = found_code
-                result_typename = found_typename
-            else:
-                extracted_code, extracted_typename = extract_code_underscore_priority(
-                    all_codes, all_typenames, excluded_codes
-                )
-                result_code = extracted_code
-                result_typename = extracted_typename
-                if not result_code and all_codes:
-                    result_code = all_codes[0]
-                if not result_code and all_typenames:
-                    result_code = all_typenames[0]
-            
-            return {
-                "captcha_solved": True,
-                "result_code": result_code,
-                "result_typename": result_typename,
-                "response_result": response_result,
-                "order_number": order_number,
-                "final_url": final_url,
-                "order_confirmed": order_confirmed,
-                "is_3ds": is_3ds,
-                "all_codes": all_codes,
-                "all_typenames": all_typenames
-            }
-        else:
-            logger.warning(f"[{task_id}] CAPTCHA solve failed")
-            return {
-                "captcha_solved": False,
-                "result_code": "CAPTCHA_REQUIRED",
-                "result_typename": None,
-                "response_result": "CAPTCHA solve failed",
-                "order_number": None,
-                "final_url": None,
-                "order_confirmed": False,
-                "is_3ds": False,
-                "all_codes": [],
-                "all_typenames": []
-            }
-    
-    except Exception as e:
-        logger.error(f"[{task_id}] CAPTCHA solve error: {str(e)}")
-        return {
-            "captcha_solved": False,
-            "result_code": "CAPTCHA_REQUIRED",
-            "result_typename": None,
-            "response_result": f"CAPTCHA error: {str(e)}",
-            "order_number": None,
-            "final_url": None,
-            "order_confirmed": False,
-            "is_3ds": False,
-            "all_codes": [],
-            "all_typenames": []
-        }
-
 def ff(ccx, site, task_id=None):
     """
     دالة معالجة بطاقة واحدة وموقع واحد
@@ -511,6 +220,7 @@ def ff(ccx, site, task_id=None):
     task_id: معرف المهمة للتتبع
     """
     
+    # تسجيل بدء المهمة
     if task_id:
         with active_tasks_lock:
             active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
@@ -549,7 +259,7 @@ def ff(ccx, site, task_id=None):
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
+        s.headers.update({'User-Agent':usser})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -596,11 +306,11 @@ def ff(ccx, site, task_id=None):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, timeout=100)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies,  timeout=100)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, timeout=100)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies,timeout=100)
         checkout_url = response.url
         
     except Exception as e:
@@ -965,16 +675,18 @@ def ff(ccx, site, task_id=None):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE',
-                'First',
-                'by-items',
-                'Standard',
-                'Priority',
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
-                'GroundAdvantage',
-                'MediaMail',
-                'AddressLocalizationKeys'
+             'Economy',
+             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'First', 
+            'by-items', 
+            'Standard', 
+            'Priority', 
+            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'GroundAdvantage', 
+            'MediaMail',
+            'AddressLocalizationKeys'
+           
+             
             ]
             
             for attempt in range(10):
@@ -1210,38 +922,6 @@ def ff(ccx, site, task_id=None):
                             all_codes.append('INCORRECT_CVC')
                             response_result = 'INCORRECT_CVC'
                 
-                # فحص إذا تم اكتشاف كابتشا
-                captcha_detected = False
-                for code in all_codes:
-                    if 'CAPTCHA' in code.upper() or 'captcha' in code.lower():
-                        captcha_detected = True
-                        break
-                
-                if not captcha_detected:
-                    for typename in all_typenames:
-                        if 'CAPTCHA' in typename.upper() or 'captcha' in typename.lower():
-                            captcha_detected = True
-                            break
-                
-                if captcha_detected or 'CAPTCHA_REQUIRED' in str(all_codes).upper() or 'captcha' in str(all_codes).lower():
-                    logger.info(f"[{task_id}] CAPTCHA_REQUIRED detected in response - launching solver...")
-                    captcha_result = solve_captcha_and_retry(driver, wait, base_url, excluded_codes, task_id)
-                    
-                    if captcha_result.get('captcha_solved'):
-                        found_code = captcha_result.get('result_code')
-                        found_typename = captcha_result.get('result_typename')
-                        response_result = captcha_result.get('response_result')
-                        order_number = captcha_result.get('order_number')
-                        final_url = captcha_result.get('final_url')
-                        order_confirmed = captcha_result.get('order_confirmed')
-                        is_3ds = captcha_result.get('is_3ds')
-                        all_codes = captcha_result.get('all_codes', [])
-                        all_typenames = captcha_result.get('all_typenames', [])
-                        break
-                    else:
-                        found_code = 'CAPTCHA_REQUIRED'
-                        break
-                
                 if found_code or order_confirmed:
                     break
                 
@@ -1341,6 +1021,7 @@ def ff(ccx, site, task_id=None):
                     result_code = None
                     result_typename = None
             
+            # تحديث حالة المهمة
             if task_id:
                 with active_tasks_lock:
                     if task_id in active_tasks:
@@ -1438,8 +1119,10 @@ def home():
             "error": "Missing cc or url parameters. Use /?cc=CARD&url=SITE"
         })
     
+    # توليد معرف للمهمة
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
     
+    # تنفيذ المهمة في Thread منفصل - هذا يسمح بتنفيذ عدة طلبات بنفس الوقت
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1475,4 +1158,5 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
+    # تشغيل Flask مع دعم threads للتوازي
     app.run(host='0.0.0.0', port=port, threaded=True)
