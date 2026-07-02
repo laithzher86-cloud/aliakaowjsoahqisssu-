@@ -144,9 +144,46 @@ def generate_matched_shipping_data():
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
+def is_ignored_response(body, code, typename):
+    """
+    دالة موحدة للتحقق مما إذا كان يجب تجاهل الاستجابة
+    ترجع True إذا كان يجب تجاهلها
+    """
+    ignored_codes = [
+        'NegotiationResultPayload',
+        'Proposal'
+    ]
+    
+    ignored_typenames = [
+        'NegotiationResultPayload',
+        'Proposal',
+        'Query',
+        'Mutation',
+        'Subscription'
+    ]
+    
+    # فحص النص الكامل
+    if body and ('NegotiationResultPayload' in body or 'Proposal' in body):
+        # إذا كان يحتوي على NegotiationResultPayload أو Proposal فقط بدون كود مفيد آخر
+        if '"code":' not in body or '"code":"NegotiationResultPayload"' in body or '"code":"Proposal"' in body:
+            return True
+    
+    # فحص الكود
+    if code and code in ignored_codes:
+        return True
+    
+    # فحص typename
+    if typename and typename in ignored_typenames:
+        return True
+    
+    return False
+
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     valid_codes = []
     for code in all_codes:
+        # تجاهل NegotiationResultPayload
+        if code == 'NegotiationResultPayload' or code == 'Proposal':
+            continue
         is_excluded = False
         for excluded in excluded_codes:
             if excluded in code:
@@ -178,7 +215,7 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         return filtered_underscore_codes[0], None
     
     if all_typenames:
-        typename_underscore = [t for t in all_typenames if '_' in t]
+        typename_underscore = [t for t in all_typenames if '_' in t and t not in ['NegotiationResultPayload', 'Proposal', 'Query', 'Mutation', 'Subscription']]
         filtered_typename_underscore = []
         for t in typename_underscore:
             is_unwanted = False
@@ -196,7 +233,9 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         return valid_codes[0], None
     
     if all_typenames:
-        return all_typenames[0], all_typenames[0]
+        valid_typenames = [t for t in all_typenames if t not in ['NegotiationResultPayload', 'Proposal', 'Query', 'Mutation', 'Subscription']]
+        if valid_typenames:
+            return valid_typenames[0], valid_typenames[0]
     
     return None, None
 
@@ -282,7 +321,6 @@ def ff(ccx, site, task_id=None):
         if not shippable_products:
             return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
         
-        # اختيار عشوائي من المنتجات المتاحة
         selected_product = random.choice(shippable_products)
         variant_id = selected_product['variant_id']
         total_amount = f"${selected_product['price']:.2f}"
@@ -495,13 +533,24 @@ def ff(ccx, site, task_id=None):
         except:
             return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
-        # ==================== 5. اعتراض GraphQL - فلترة متقدمة ====================
+        # ==================== 5. اعتراض GraphQL - فلترة شاملة ====================
         try:
             script = """
             window.pollForReceiptResponses = [];
             window.graphqlResponses = [];
             window.allResponses = [];
             window.pageUrls = [];
+            
+            function isIgnoredResponse(text) {
+                if (!text) return false;
+                // تجاهل إذا كان NegotiationResultPayload هو الكود الوحيد
+                if (text.includes('"__typename":"NegotiationResultPayload"') || text.includes('"__typename": "NegotiationResultPayload"')) {
+                    if (!text.includes('"code":"') || text.includes('"code":"NegotiationResultPayload"') || text.includes('"code": "NegotiationResultPayload"')) {
+                        return true;
+                    }
+                }
+                return false;
+            }
             
             var originalFetch = window.fetch;
             window.fetch = function(url, options) {
@@ -531,34 +580,34 @@ def ff(ccx, site, task_id=None):
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
                             
-                            var isPollForReceipt = false;
-                            var isProposal = false;
+                            // تجاهل Proposal و NegotiationResultPayload
+                            if (isIgnoredResponse(text)) {
+                                return;
+                            }
                             
+                            var isProposal = false;
                             if (requestBody) {
                                 try {
                                     var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'PollForReceipt') {
-                                        isPollForReceipt = true;
-                                    }
                                     if (parsedBody.operationName === 'Proposal') {
                                         isProposal = true;
                                     }
                                 } catch(e) {}
                             }
                             
-                            // فلترة NegotiationResultPayload من النص
-                            var isNegotiation = false;
-                            if (text && text.includes('NegotiationResultPayload')) {
-                                isNegotiation = true;
+                            if (isProposal) {
+                                return;
                             }
                             
-                            // تجاهل Proposal و NegotiationResultPayload
-                            if (isPollForReceipt && !isNegotiation) {
-                                window.pollForReceiptResponses.push(data);
-                            }
+                            window.graphqlResponses.push(data);
                             
-                            if (!isProposal && !isNegotiation) {
-                                window.graphqlResponses.push(data);
+                            if (requestBody) {
+                                try {
+                                    var parsedBody2 = JSON.parse(requestBody);
+                                    if (parsedBody2.operationName === 'PollForReceipt') {
+                                        window.pollForReceiptResponses.push(data);
+                                    }
+                                } catch(e) {}
                             }
                         }
                     });
@@ -595,33 +644,33 @@ def ff(ccx, site, task_id=None):
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
                             
-                            var isPollForReceipt = false;
-                            var isProposal = false;
+                            if (isIgnoredResponse(text)) {
+                                return;
+                            }
                             
+                            var isProposal = false;
                             if (requestBody) {
                                 try {
                                     var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'PollForReceipt') {
-                                        isPollForReceipt = true;
-                                    }
                                     if (parsedBody.operationName === 'Proposal') {
                                         isProposal = true;
                                     }
                                 } catch(e) {}
                             }
                             
-                            // فلترة NegotiationResultPayload من النص
-                            var isNegotiation = false;
-                            if (text && text.includes('NegotiationResultPayload')) {
-                                isNegotiation = true;
+                            if (isProposal) {
+                                return;
                             }
                             
-                            if (isPollForReceipt && !isNegotiation) {
-                                window.pollForReceiptResponses.push(data);
-                            }
+                            window.graphqlResponses.push(data);
                             
-                            if (!isProposal && !isNegotiation) {
-                                window.graphqlResponses.push(data);
+                            if (requestBody) {
+                                try {
+                                    var parsedBody2 = JSON.parse(requestBody);
+                                    if (parsedBody2.operationName === 'PollForReceipt') {
+                                        window.pollForReceiptResponses.push(data);
+                                    }
+                                } catch(e) {}
                             }
                         }
                     } catch(e) {}
@@ -677,7 +726,7 @@ def ff(ccx, site, task_id=None):
                     }
                 """)
             
-            # ==================== 7. استخراج الكود - يركز على PollForReceipt فقط ====================
+            # ==================== 7. استخراج الكود ====================
             found_code = None
             found_typename = None
             all_codes = []
@@ -713,16 +762,8 @@ def ff(ccx, site, task_id=None):
                 'GroundAdvantage', 
                 'MediaMail',
                 'AddressLocalizationKeys',
-                'NegotiationResultPayload'  # إضافة NegotiationResultPayload إلى القائمة المستبعدة
-            ]
-            
-            # قائمة إضافية للـ typenames التي يجب تجاهلها
-            ignored_typenames = [
                 'NegotiationResultPayload',
-                'Proposal',
-                'Query',
-                'Mutation',
-                'Subscription'
+                'Proposal'
             ]
             
             for attempt in range(10):
@@ -777,7 +818,7 @@ def ff(ccx, site, task_id=None):
                 except:
                     pass
                 
-                # معالجة PollForReceipt responses أولاً
+                # معالجة PollForReceipt responses
                 for resp in poll_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
@@ -785,15 +826,16 @@ def ff(ccx, site, task_id=None):
                     if not body:
                         continue
                     
-                    # تخطي إذا كان يحتوي على NegotiationResultPayload
-                    if 'NegotiationResultPayload' in body:
+                    # استخدام دالة is_ignored_response للفلترة
+                    if is_ignored_response(body, None, None):
                         continue
                     
-                    # استخراج الأكواد
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
                     for code in matches:
                         if len(code) > 3 and len(code) < 80 and ' ' not in code:
+                            if is_ignored_response(None, code, None):
+                                continue
                             is_excluded = False
                             for excluded in excluded_codes:
                                 if excluded in code:
@@ -802,17 +844,15 @@ def ff(ccx, site, task_id=None):
                             if not is_excluded and code not in all_codes:
                                 all_codes.append(code)
                     
-                    # استخراج __typename
                     if '__typename' in body:
                         pattern = r'"__typename"\s*:\s*"([^"]+)"'
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for typename in matches:
                             if len(typename) > 3 and len(typename) < 80:
-                                if typename not in ignored_typenames:
+                                if not is_ignored_response(None, None, typename):
                                     if typename not in all_typenames:
                                         all_typenames.append(typename)
                     
-                    # فحص processingError
                     if 'processingError' in body:
                         try:
                             data = json.loads(body)
@@ -820,15 +860,16 @@ def ff(ccx, site, task_id=None):
                             if err:
                                 code = err.get('code')
                                 if code and len(code) > 3 and len(code) < 80:
-                                    is_excluded = False
-                                    for excluded in excluded_codes:
-                                        if excluded in code:
-                                            is_excluded = True
-                                            break
-                                    if not is_excluded and code not in all_codes:
-                                        all_codes.append(code)
+                                    if not is_ignored_response(None, code, None):
+                                        is_excluded = False
+                                        for excluded in excluded_codes:
+                                            if excluded in code:
+                                                is_excluded = True
+                                                break
+                                        if not is_excluded and code not in all_codes:
+                                            all_codes.append(code)
                                 typename = err.get('__typename')
-                                if typename and typename not in ignored_typenames:
+                                if typename and not is_ignored_response(None, None, typename):
                                     if typename not in all_typenames:
                                         all_typenames.append(typename)
                                 message = err.get('message', '')
@@ -837,7 +878,6 @@ def ff(ccx, site, task_id=None):
                         except:
                             pass
                     
-                    # فحص errors
                     if 'errors' in body:
                         try:
                             data = json.loads(body)
@@ -846,15 +886,16 @@ def ff(ccx, site, task_id=None):
                                 if isinstance(error, dict):
                                     code = error.get('code')
                                     if code and len(code) > 3 and len(code) < 80:
-                                        is_excluded = False
-                                        for excluded in excluded_codes:
-                                            if excluded in code:
-                                                is_excluded = True
-                                                break
-                                        if not is_excluded and code not in all_codes:
-                                            all_codes.append(code)
+                                        if not is_ignored_response(None, code, None):
+                                            is_excluded = False
+                                            for excluded in excluded_codes:
+                                                if excluded in code:
+                                                    is_excluded = True
+                                                    break
+                                            if not is_excluded and code not in all_codes:
+                                                all_codes.append(code)
                                     typename = error.get('__typename')
-                                    if typename and typename not in ignored_typenames:
+                                    if typename and not is_ignored_response(None, None, typename):
                                         if typename not in all_typenames:
                                             all_typenames.append(typename)
                                     message = error.get('message', '')
@@ -863,7 +904,6 @@ def ff(ccx, site, task_id=None):
                         except:
                             pass
                     
-                    # فحص CompletePaymentChallenge
                     if 'CompletePaymentChallenge' in body:
                         try:
                             data = json.loads(body)
@@ -883,7 +923,7 @@ def ff(ccx, site, task_id=None):
                 if found_code or order_confirmed:
                     break
                 
-                # معالجة graphqlResponses كاحتياط إذا لم نجد شيء في PollForReceipt
+                # معالجة graphqlResponses كاحتياط
                 if not all_codes:
                     for resp in graphql_responses:
                         body = resp.get('body', '')
@@ -892,8 +932,7 @@ def ff(ccx, site, task_id=None):
                         if not body:
                             continue
                         
-                        # تخطي إذا كان يحتوي على NegotiationResultPayload
-                        if 'NegotiationResultPayload' in body:
+                        if is_ignored_response(body, None, None):
                             continue
                         
                         if '/thank_you' in body or 'thank_you' in url:
@@ -926,10 +965,28 @@ def ff(ccx, site, task_id=None):
                                 order_number = order_match.group(1)
                             break
                         
+                        if '/persisted' in url and 'CompletePaymentChallenge' in body:
+                            try:
+                                data = json.loads(body)
+                                if 'data' in data and 'receipt' in data['data']:
+                                    receipt = data['data']['receipt']
+                                    if 'action' in receipt:
+                                        action = receipt['action']
+                                        if action.get('__typename') == 'CompletePaymentChallenge':
+                                            is_3ds = True
+                                            found_code = '3DS_REQUIRED'
+                                            found_typename = 'CompletePaymentChallenge'
+                                            response_result = '3DS Secure required - Please complete authentication'
+                                            break
+                            except:
+                                pass
+                        
                         pattern = r'"code"\s*:\s*"([^"]+)"'
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for code in matches:
                             if len(code) > 3 and len(code) < 80 and ' ' not in code:
+                                if is_ignored_response(None, code, None):
+                                    continue
                                 is_excluded = False
                                 for excluded in excluded_codes:
                                     if excluded in code:
@@ -943,7 +1000,7 @@ def ff(ccx, site, task_id=None):
                             matches = re.findall(pattern, body, re.IGNORECASE)
                             for typename in matches:
                                 if len(typename) > 3 and len(typename) < 80:
-                                    if typename not in ignored_typenames:
+                                    if not is_ignored_response(None, None, typename):
                                         if typename not in all_typenames:
                                             all_typenames.append(typename)
                         
@@ -951,6 +1008,8 @@ def ff(ccx, site, task_id=None):
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for status in matches:
                             if len(status) > 3 and len(status) < 80 and ' ' not in status:
+                                if is_ignored_response(None, status, None):
+                                    continue
                                 is_excluded = False
                                 for excluded in excluded_codes:
                                     if excluded in status:
@@ -996,8 +1055,7 @@ def ff(ccx, site, task_id=None):
                                         response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
                                         body = response.get('body', '')
                                         if body:
-                                            # تخطي NegotiationResultPayload
-                                            if 'NegotiationResultPayload' in body:
+                                            if is_ignored_response(body, None, None):
                                                 continue
                                                 
                                             if 'CompletePaymentChallenge' in body:
@@ -1020,6 +1078,8 @@ def ff(ccx, site, task_id=None):
                                                 matches = re.findall(pattern, body, re.IGNORECASE)
                                                 for code in matches:
                                                     if len(code) > 3 and len(code) < 80 and ' ' not in code:
+                                                        if is_ignored_response(None, code, None):
+                                                            continue
                                                         is_excluded = False
                                                         for excluded in excluded_codes:
                                                             if excluded in code:
@@ -1032,7 +1092,7 @@ def ff(ccx, site, task_id=None):
                                                 matches = re.findall(pattern, body, re.IGNORECASE)
                                                 for typename in matches:
                                                     if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ignored_typenames:
+                                                        if not is_ignored_response(None, None, typename):
                                                             if typename not in all_typenames:
                                                                 all_typenames.append(typename)
                                     except:
@@ -1048,6 +1108,12 @@ def ff(ccx, site, task_id=None):
             if driver:
                 driver.quit()
             
+            # ==================== فلترة نهائية قبل النتيجة ====================
+            # تنظيف all_codes من NegotiationResultPayload
+            all_codes = [c for c in all_codes if c != 'NegotiationResultPayload' and c != 'Proposal']
+            # تنظيف all_typenames
+            all_typenames = [t for t in all_typenames if t not in ['NegotiationResultPayload', 'Proposal', 'Query', 'Mutation', 'Subscription']]
+            
             # ==================== نتيجة الاستخراج ====================
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
@@ -1062,7 +1128,7 @@ def ff(ccx, site, task_id=None):
             elif found_code == 'SUCCESS':
                 result_code = 'SUCCESS'
                 result_typename = found_typename
-            elif found_code and found_code not in excluded_codes:
+            elif found_code and found_code not in excluded_codes and found_code != 'NegotiationResultPayload':
                 result_code = found_code
                 result_typename = found_typename
             else:
@@ -1070,21 +1136,23 @@ def ff(ccx, site, task_id=None):
                     all_codes, all_typenames, excluded_codes
                 )
                 
-                if extracted_code:
+                if extracted_code and extracted_code != 'NegotiationResultPayload':
                     result_code = extracted_code
                     result_typename = extracted_typename if extracted_typename else found_typename
                 elif all_typenames:
-                    # التأكد من أن النتيجة ليست NegotiationResultPayload
-                    valid_typenames = [t for t in all_typenames if t not in ignored_typenames]
-                    if valid_typenames:
-                        result_code = valid_typenames[0]
-                        result_typename = valid_typenames[0]
-                    else:
-                        result_code = None
-                        result_typename = None
+                    result_code = all_typenames[0]
+                    result_typename = all_typenames[0]
+                elif all_codes:
+                    result_code = all_codes[0]
+                    result_typename = None
                 else:
                     result_code = None
                     result_typename = None
+            
+            # فلترة نهائية - إذا النتيجة NegotiationResultPayload نرجع None
+            if result_code == 'NegotiationResultPayload' or result_typename == 'NegotiationResultPayload':
+                result_code = None
+                result_typename = None
             
             if task_id:
                 with active_tasks_lock:
