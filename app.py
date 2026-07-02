@@ -272,7 +272,7 @@ def ff(ccx, site, task_id=None):
                 price = float(v.get('price', 0))
                 available = v.get('available', True)
                 # اختيار منتجات رخيصة بشكل عشوائي بين 1.00 و 2.00
-                if price > 0 and available and 1.0 <= price <= 2.0:
+                if price > 0 and available and 1.0 <= price <= 10.0:
                     shippable_products.append({
                         'title': p.get('title'),
                         'price': price,
