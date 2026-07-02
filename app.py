@@ -1,3 +1,4 @@
+
 # app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
 import time
 import re
@@ -22,7 +23,7 @@ import random
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
-MAX_WORKERS = 50
+MAX_WORKERS = 10
 REQUEST_TIMEOUT = 120
 TASK_QUEUE = queue.Queue()
 
@@ -108,6 +109,9 @@ def generate_matched_shipping_data():
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
+    """
+    استخراج الكود مع أولوية للـ codes التي تحتوي على شرطة سفلية _
+    """
     valid_codes = []
     for code in all_codes:
         is_excluded = False
@@ -118,13 +122,14 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         if not is_excluded:
             valid_codes.append(code)
     
+    # البحث عن codes تحتوي على _
     underscore_codes = [code for code in valid_codes if '_' in code]
     
     unwanted_patterns = [
         'Free_Postal_Shipping', 'UPS_', 'Economy_', 'First_', 'Standard_', 'Priority_',
         'GroundAdvantage_', 'MediaMail_', 'Flat_', 'Shipping_', 'Express_',
         'PrivacyBannerSettingsBulletPoints_', 'UiExtension_', 'fedex_ground_economy_',
-        'CAMP_', 'by-items_', 'DELIVERY_', 'PAYMENTS_', 'BUYER_', 'REQUIRED_', 'WAITING_'
+        'CAMP_', 'by-items_', 'DELIVERY_', 'PAYMENTS_', 'BUYER_', 'WAITING_'
     ]
     
     filtered_underscore_codes = []
@@ -140,25 +145,15 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     if filtered_underscore_codes:
         return filtered_underscore_codes[0], None
     
-    if all_typenames:
-        typename_underscore = [t for t in all_typenames if '_' in t]
-        filtered_typename_underscore = []
-        for t in typename_underscore:
-            is_unwanted = False
-            for pattern in unwanted_patterns:
-                if pattern in t:
-                    is_unwanted = True
-                    break
-            if not is_unwanted:
-                filtered_typename_underscore.append(t)
-        
-        if filtered_typename_underscore:
-            return filtered_typename_underscore[0], filtered_typename_underscore[0]
-    
+    # إذا ما لقينا code يحتوي على _، نرجع أول code عادي
     if valid_codes:
         return valid_codes[0], None
     
+    # كملاذ أخير، نرجع typename
     if all_typenames:
+        typename_underscore = [t for t in all_typenames if '_' in t]
+        if typename_underscore:
+            return typename_underscore[0], typename_underscore[0]
         return all_typenames[0], all_typenames[0]
     
     return None, None
@@ -208,7 +203,6 @@ def ff(ccx, site, task_id=None):
         
         digital_keywords = ['worry-free', 'protection', 'insurance', 'warranty', 'digital', 'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription', 'service', 'guarantee', 'support']
         
-        # إعادة محاولة جلب المنتجات
         max_retries = 5
         r = None
         for retry in range(max_retries):
@@ -293,7 +287,6 @@ def ff(ccx, site, task_id=None):
         variant_id = selected_product['variant_id']
         total_amount = f"${selected_product['price']:.2f}"
         
-        # إعادة محاولة الإضافة إلى السلة
         resp = None
         for retry in range(max_retries):
             try:
@@ -317,7 +310,6 @@ def ff(ccx, site, task_id=None):
         if resp is None or resp.status_code != 200:
             return {"success": False, "code": None, "error": "Failed to add to cart after retries", "task_id": task_id}
         
-        # إعادة محاولة checkout
         response = None
         for retry in range(max_retries):
             try:
@@ -365,7 +357,7 @@ def ff(ccx, site, task_id=None):
         
         driver = webdriver.Chrome(options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 3)
         driver.set_page_load_timeout(25)
         
         driver.get(checkout_url)
@@ -510,7 +502,7 @@ def ff(ccx, site, task_id=None):
         except:
             return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
-        # ==================== 5. اعتراض GraphQL - فقط PollForReceipt ====================
+        # ==================== 5. اعتراض GraphQL ====================
         try:
             script = """
             window.graphqlResponses = [];
@@ -529,45 +521,27 @@ def ff(ccx, site, task_id=None):
                     var requestBody = null;
                     
                     if (options && options.body) {
-                        try {
-                            requestBody = options.body;
-                        } catch(e) {}
+                        try { requestBody = options.body; } catch(e) {}
                     }
                     
                     clone.text().then(function(text) {
-                        var data = {
-                            url: responseUrl,
-                            body: text,
-                            requestBody: requestBody,
-                            timestamp: new Date().toISOString()
-                        };
-                        
+                        var data = {url: responseUrl, body: text, requestBody: requestBody, timestamp: new Date().toISOString()};
                         window.allResponses.push(data);
                         
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
-                            
-                            // تجاهل Proposal تماماً
                             var isProposal = false;
                             if (requestBody) {
                                 try {
                                     var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'Proposal') {
-                                        isProposal = true;
-                                    }
+                                    if (parsedBody.operationName === 'Proposal') isProposal = true;
                                 } catch(e) {}
                             }
-                            
-                            // فقط إذا مو Proposal ندخله
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                
-                                // تخزين PollForReceipt بشكل منفصل
                                 if (requestBody) {
                                     try {
                                         var parsedBody2 = JSON.parse(requestBody);
-                                        if (parsedBody2.operationName === 'PollForReceipt') {
-                                            window.pollForReceiptResponses.push(data);
-                                        }
+                                        if (parsedBody2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data);
                                     } catch(e) {}
                                 }
                             }
@@ -579,68 +553,24 @@ def ff(ccx, site, task_id=None):
             
             var originalXHROpen = XMLHttpRequest.prototype.open;
             var originalXHRSend = XMLHttpRequest.prototype.send;
-            
-            XMLHttpRequest.prototype.open = function(method, url) {
-                this._url = url;
-                this._method = method;
-                return originalXHROpen.apply(this, arguments);
-            };
-            
+            XMLHttpRequest.prototype.open = function(method, url) { this._url = url; return originalXHROpen.apply(this, arguments); };
             XMLHttpRequest.prototype.send = function(body) {
                 var self = this;
-                var requestBody = body;
-                
                 this.addEventListener('load', function() {
                     try {
-                        var text = self.responseText;
-                        var responseUrl = self._url;
-                        
-                        var data = {
-                            url: responseUrl,
-                            body: text,
-                            requestBody: requestBody,
-                            timestamp: new Date().toISOString()
-                        };
-                        
+                        var data = {url: self._url, body: self.responseText, requestBody: body, timestamp: new Date().toISOString()};
                         window.allResponses.push(data);
-                        
-                        if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
-                            
-                            // تجاهل Proposal تماماً
+                        if (self._url && self._url.includes('/checkouts/internal/graphql/persisted')) {
                             var isProposal = false;
-                            if (requestBody) {
-                                try {
-                                    var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'Proposal') {
-                                        isProposal = true;
-                                    }
-                                } catch(e) {}
-                            }
-                            
-                            // فقط إذا مو Proposal ندخله
+                            if (body) { try { var p = JSON.parse(body); if (p.operationName === 'Proposal') isProposal = true; } catch(e) {} }
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                
-                                // تخزين PollForReceipt بشكل منفصل
-                                if (requestBody) {
-                                    try {
-                                        var parsedBody2 = JSON.parse(requestBody);
-                                        if (parsedBody2.operationName === 'PollForReceipt') {
-                                            window.pollForReceiptResponses.push(data);
-                                        }
-                                    } catch(e) {}
-                                }
+                                if (body) { try { var p2 = JSON.parse(body); if (p2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data); } catch(e) {} }
                             }
                         }
                     } catch(e) {}
                 });
                 return originalXHRSend.apply(this, arguments);
-            };
-            
-            var originalPushState = history.pushState;
-            history.pushState = function(state, title, url) {
-                window.pageUrls.push(url);
-                return originalPushState.apply(this, arguments);
             };
             """
             driver.execute_script(script)
@@ -685,7 +615,7 @@ def ff(ccx, site, task_id=None):
                     }
                 """)
             
-            # ==================== 7. استخراج الكود - فقط من PollForReceipt ====================
+            # ==================== 7. استخراج الكود ====================
             found_code = None
             found_typename = None
             all_codes = []
@@ -726,7 +656,6 @@ def ff(ccx, site, task_id=None):
             for attempt in range(12):
                 time.sleep(1.5)
                 
-                # الأولوية لـ PollForReceipt
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
                 graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
                 current_url = driver.current_url
@@ -774,7 +703,7 @@ def ff(ccx, site, task_id=None):
                 except:
                     pass
                 
-                # استخراج من PollForReceipt فقط
+                # استخراج من PollForReceipt
                 for resp in poll_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
@@ -782,6 +711,7 @@ def ff(ccx, site, task_id=None):
                     if not body:
                         continue
                     
+                    # استخراج code
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
                     for code in matches:
@@ -794,6 +724,7 @@ def ff(ccx, site, task_id=None):
                             if not is_excluded and code not in all_codes:
                                 all_codes.append(code)
                     
+                    # استخراج __typename
                     if '__typename' in body:
                         pattern = r'"__typename"\s*:\s*"([^"]+)"'
                         matches = re.findall(pattern, body, re.IGNORECASE)
@@ -803,6 +734,7 @@ def ff(ccx, site, task_id=None):
                                     if typename not in all_typenames:
                                         all_typenames.append(typename)
                     
+                    # فحص processingError
                     if 'processingError' in body:
                         try:
                             data = json.loads(body)
@@ -826,6 +758,7 @@ def ff(ccx, site, task_id=None):
                         except:
                             pass
                     
+                    # فحص errors
                     if 'errors' in body:
                         try:
                             data = json.loads(body)
@@ -876,8 +809,8 @@ def ff(ccx, site, task_id=None):
                 if found_code or order_confirmed:
                     break
                 
-                # إذا ماكو شي من PollForReceipt، نرجع لـ graphqlResponses (بدون Proposal)
-                if not all_codes and not all_typenames:
+                # استخراج من graphqlResponses (بدون Proposal)
+                if not all_codes:
                     for resp in graphql_responses:
                         body = resp.get('body', '')
                         url = resp.get('url', '')
@@ -902,7 +835,7 @@ def ff(ccx, site, task_id=None):
                 
                 final_url = driver.current_url
             
-            # Performance logs كملاذ أخير
+            # Performance logs
             if not found_code and not all_codes and not order_confirmed:
                 logs = driver.get_log('performance')
                 for log in logs:
@@ -971,13 +904,11 @@ def ff(ccx, site, task_id=None):
             elif is_3ds or found_code == '3DS_REQUIRED':
                 result_code = '3DS_REQUIRED'
                 result_typename = found_typename or 'CompletePaymentChallenge'
-            elif found_code == 'SUCCESS':
-                result_code = 'SUCCESS'
-                result_typename = found_typename
             elif found_code and found_code not in excluded_codes:
                 result_code = found_code
                 result_typename = found_typename
             else:
+                # استخدام دالة الاستخراج - أولوية للـ code اللي يحتوي على _
                 extracted_code, extracted_typename = extract_code_underscore_priority(
                     all_codes, all_typenames, excluded_codes
                 )
@@ -987,7 +918,7 @@ def ff(ccx, site, task_id=None):
                     result_typename = extracted_typename if extracted_typename else found_typename
                 elif all_codes:
                     result_code = all_codes[0]
-                    result_typename = all_typenames[0] if all_typenames else None
+                    result_typename = None
                 elif all_typenames:
                     result_code = all_typenames[0]
                     result_typename = all_typenames[0]
