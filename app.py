@@ -271,8 +271,7 @@ def ff(ccx, site, task_id=None):
             for v in p.get('variants', []):
                 price = float(v.get('price', 0))
                 available = v.get('available', True)
-                # اختيار منتجات رخيصة بشكل عشوائي بين 1.00 و 2.00
-                if price > 0 and available and 1.0 <= price <= 10.0:
+                if price > 0 and available and price >= 1.0:
                     shippable_products.append({
                         'title': p.get('title'),
                         'price': price,
@@ -281,9 +280,9 @@ def ff(ccx, site, task_id=None):
                     })
         
         if not shippable_products:
-            return {"success": False, "code": None, "error": "No shippable product in price range", "task_id": task_id}
+            return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
         
-        # اختيار عشوائي من المنتجات الرخيصة المتاحة
+        # اختيار عشوائي من المنتجات المتاحة
         selected_product = random.choice(shippable_products)
         variant_id = selected_product['variant_id']
         total_amount = f"${selected_product['price']:.2f}"
@@ -300,7 +299,7 @@ def ff(ccx, site, task_id=None):
                     break
                 else:
                     logger.warning(f"[{task_id}] Cart add failed (attempt {retry_attempt + 1}/{max_retries}), status: {resp.status_code}")
-                    time.sleep(1.5 * (retry_attempt + 1))  # زيادة وقت الانتظار تدريجياً
+                    time.sleep(1.5 * (retry_attempt + 1))
             except Exception as e:
                 logger.warning(f"[{task_id}] Cart add exception (attempt {retry_attempt + 1}/{max_retries}): {str(e)}")
                 time.sleep(1.5 * (retry_attempt + 1))
@@ -530,7 +529,6 @@ def ff(ccx, site, task_id=None):
                         
                         window.allResponses.push(data);
                         
-                        // فقط اعتراض persisted مع التأكد من نوع العملية
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
                             
                             var isPollForReceipt = false;
@@ -548,16 +546,20 @@ def ff(ccx, site, task_id=None):
                                 } catch(e) {}
                             }
                             
-                            // تسجيل PollForReceipt فقط في المصفوفة المخصصة
-                            if (isPollForReceipt) {
+                            // فلترة NegotiationResultPayload من النص
+                            var isNegotiation = false;
+                            if (text && text.includes('NegotiationResultPayload')) {
+                                isNegotiation = true;
+                            }
+                            
+                            // تجاهل Proposal و NegotiationResultPayload
+                            if (isPollForReceipt && !isNegotiation) {
                                 window.pollForReceiptResponses.push(data);
                             }
                             
-                            // تسجيل الكل ما عدا Proposal في graphqlResponses
-                            if (!isProposal) {
+                            if (!isProposal && !isNegotiation) {
                                 window.graphqlResponses.push(data);
                             }
-                            // Proposal يتم تجاهلها تماماً ولا تسجل في أي مصفوفة
                         }
                     });
                     return response;
@@ -608,11 +610,17 @@ def ff(ccx, site, task_id=None):
                                 } catch(e) {}
                             }
                             
-                            if (isPollForReceipt) {
+                            // فلترة NegotiationResultPayload من النص
+                            var isNegotiation = false;
+                            if (text && text.includes('NegotiationResultPayload')) {
+                                isNegotiation = true;
+                            }
+                            
+                            if (isPollForReceipt && !isNegotiation) {
                                 window.pollForReceiptResponses.push(data);
                             }
                             
-                            if (!isProposal) {
+                            if (!isProposal && !isNegotiation) {
                                 window.graphqlResponses.push(data);
                             }
                         }
@@ -704,15 +712,23 @@ def ff(ccx, site, task_id=None):
                 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
                 'GroundAdvantage', 
                 'MediaMail',
-                'AddressLocalizationKeys'
+                'AddressLocalizationKeys',
+                'NegotiationResultPayload'  # إضافة NegotiationResultPayload إلى القائمة المستبعدة
+            ]
+            
+            # قائمة إضافية للـ typenames التي يجب تجاهلها
+            ignored_typenames = [
+                'NegotiationResultPayload',
+                'Proposal',
+                'Query',
+                'Mutation',
+                'Subscription'
             ]
             
             for attempt in range(10):
                 time.sleep(1.5)
                 
-                # استخدام pollForReceiptResponses فقط للاستخراج الأساسي
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
-                # استخدام graphqlResponses كاحتياط فقط
                 graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
                 current_url = driver.current_url
                 final_url = current_url
@@ -769,6 +785,10 @@ def ff(ccx, site, task_id=None):
                     if not body:
                         continue
                     
+                    # تخطي إذا كان يحتوي على NegotiationResultPayload
+                    if 'NegotiationResultPayload' in body:
+                        continue
+                    
                     # استخراج الأكواد
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
@@ -788,7 +808,7 @@ def ff(ccx, site, task_id=None):
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for typename in matches:
                             if len(typename) > 3 and len(typename) < 80:
-                                if typename not in ['Query', 'Mutation', 'Subscription']:
+                                if typename not in ignored_typenames:
                                     if typename not in all_typenames:
                                         all_typenames.append(typename)
                     
@@ -808,8 +828,9 @@ def ff(ccx, site, task_id=None):
                                     if not is_excluded and code not in all_codes:
                                         all_codes.append(code)
                                 typename = err.get('__typename')
-                                if typename and typename not in all_typenames:
-                                    all_typenames.append(typename)
+                                if typename and typename not in ignored_typenames:
+                                    if typename not in all_typenames:
+                                        all_typenames.append(typename)
                                 message = err.get('message', '')
                                 if message:
                                     response_result = message
@@ -833,8 +854,9 @@ def ff(ccx, site, task_id=None):
                                         if not is_excluded and code not in all_codes:
                                             all_codes.append(code)
                                     typename = error.get('__typename')
-                                    if typename and typename not in all_typenames:
-                                        all_typenames.append(typename)
+                                    if typename and typename not in ignored_typenames:
+                                        if typename not in all_typenames:
+                                            all_typenames.append(typename)
                                     message = error.get('message', '')
                                     if message:
                                         response_result = message
@@ -868,6 +890,10 @@ def ff(ccx, site, task_id=None):
                         url = resp.get('url', '')
                         
                         if not body:
+                            continue
+                        
+                        # تخطي إذا كان يحتوي على NegotiationResultPayload
+                        if 'NegotiationResultPayload' in body:
                             continue
                         
                         if '/thank_you' in body or 'thank_you' in url:
@@ -917,7 +943,7 @@ def ff(ccx, site, task_id=None):
                             matches = re.findall(pattern, body, re.IGNORECASE)
                             for typename in matches:
                                 if len(typename) > 3 and len(typename) < 80:
-                                    if typename not in ['Query', 'Mutation', 'Subscription']:
+                                    if typename not in ignored_typenames:
                                         if typename not in all_typenames:
                                             all_typenames.append(typename)
                         
@@ -970,7 +996,10 @@ def ff(ccx, site, task_id=None):
                                         response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
                                         body = response.get('body', '')
                                         if body:
-                                            # التحقق من نوع العملية
+                                            # تخطي NegotiationResultPayload
+                                            if 'NegotiationResultPayload' in body:
+                                                continue
+                                                
                                             if 'CompletePaymentChallenge' in body:
                                                 try:
                                                     data = json.loads(body)
@@ -1003,7 +1032,7 @@ def ff(ccx, site, task_id=None):
                                                 matches = re.findall(pattern, body, re.IGNORECASE)
                                                 for typename in matches:
                                                     if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
+                                                        if typename not in ignored_typenames:
                                                             if typename not in all_typenames:
                                                                 all_typenames.append(typename)
                                     except:
@@ -1045,8 +1074,14 @@ def ff(ccx, site, task_id=None):
                     result_code = extracted_code
                     result_typename = extracted_typename if extracted_typename else found_typename
                 elif all_typenames:
-                    result_code = all_typenames[0]
-                    result_typename = all_typenames[0]
+                    # التأكد من أن النتيجة ليست NegotiationResultPayload
+                    valid_typenames = [t for t in all_typenames if t not in ignored_typenames]
+                    if valid_typenames:
+                        result_code = valid_typenames[0]
+                        result_typename = valid_typenames[0]
+                    else:
+                        result_code = None
+                        result_typename = None
                 else:
                     result_code = None
                     result_typename = None
