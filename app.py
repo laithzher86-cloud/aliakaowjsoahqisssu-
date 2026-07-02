@@ -18,14 +18,14 @@ import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import random
-
+from user_agent import *
+usser=generate_user_agent()
 app = Flask(__name__)
 
 # ==================== إعدادات الأداء ====================
 MAX_WORKERS = 10
-REQUEST_TIMEOUT = 120
+REQUEST_TIMEOUT = 60
 TASK_QUEUE = queue.Queue()
-
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,71 +34,108 @@ logger = logging.getLogger(__name__)
 active_tasks = {}
 active_tasks_lock = threading.Lock()
 
-# ==================== قائمة البروكسيات ====================
-PROXY_LIST = [
-    "207273:YXn4KChV@192.144.26.139:8800",
-    "207273:YXn4KChV@177.234.142.34:8800",
-    "207273:YXn4KChV@192.144.26.7:8800",
-    "207273:YXn4KChV@192.144.26.182:8800",
-    "207273:YXn4KChV@177.234.142.110:8800",
-    "207274:bv5KcH7JVR@38.154.127.188:8800",
-    "207274:bv5KcH7JVR@38.154.127.189:8800",
-    "207274:bv5KcH7JVR@192.186.190.226:8800",
-    "207274:bv5KcH7JVR@38.154.127.233:8800",
-    "207274:bv5KcH7JVR@192.186.190.229:8800",
-    "207274:bv5KcH7JVR@192.186.190.236:8800",
-    "207274:bv5KcH7JVR@192.186.190.252:8800",
-    "207274:bv5KcH7JVR@38.154.127.208:8800",
-    "207274:bv5KcH7JVR@38.154.127.214:8800",
-    "207274:bv5KcH7JVR@192.186.190.225:8800",
-    "207276:gFuY3QqABfF@107.175.80.4:8800",
-    "207276:gFuY3QqABfF@107.175.92.196:8800",
-    "207276:gFuY3QqABfF@107.175.92.245:8800",
-    "207276:gFuY3QqABfF@107.175.92.197:8800",
-    "207276:gFuY3QqABfF@107.175.80.43:8800",
-    "207276:gFuY3QqABfF@107.175.80.2:8800",
-    "207276:gFuY3QqABfF@107.175.80.1:8800",
-    "207276:gFuY3QqABfF@107.175.92.244:8800",
-    "207276:gFuY3QqABfF@107.175.80.54:8800",
-    "207276:gFuY3QqABfF@107.175.92.242:8800",
-    "207295:hwst5RWh4@195.242.209.13:8800",
-    "207295:hwst5RWh4@195.242.209.223:8800",
-    "207295:hwst5RWh4@167.160.171.193:8800",
-    "207295:hwst5RWh4@167.160.171.51:8800",
-    "207295:hwst5RWh4@195.242.209.205:8800",
-    "207295:hwst5RWh4@167.160.171.139:8800",
-    "207295:hwst5RWh4@195.242.209.142:8800",
-    "207295:hwst5RWh4@167.160.171.234:8800",
-    "207295:hwst5RWh4@195.242.209.18:8800",
-    "207295:hwst5RWh4@167.160.171.116:8800",
-    "purevpn0s8732217:i67s60ep@px440401.pointtoserver.com:10780",
-]
-
-def get_random_proxy():
-    return random.choice(PROXY_LIST)
-
 # ==================== نظام توليد عناوين أمريكية متطابقة ====================
 MATCHED_ADDRESSES = [
-    {"first_name": "James", "last_name": "Smith", "full_name": "James Smith", "address1": "1200 Main St", "city": "New York", "state": "New York", "zip": "10001", "phone": "2125550101", "email_domain": "gmail.com"},
-    {"first_name": "Mary", "last_name": "Johnson", "full_name": "Mary Johnson", "address1": "2500 Oak Ave", "city": "Los Angeles", "state": "California", "zip": "90001", "phone": "2135550202", "email_domain": "yahoo.com"},
-    {"first_name": "Robert", "last_name": "Williams", "full_name": "Robert Williams", "address1": "3800 Maple Dr", "city": "Chicago", "state": "Illinois", "zip": "60601", "phone": "3125550303", "email_domain": "outlook.com"},
-    {"first_name": "Patricia", "last_name": "Brown", "full_name": "Patricia Brown", "address1": "4500 Cedar Ln", "city": "Houston", "state": "Texas", "zip": "77001", "phone": "7135550404", "email_domain": "hotmail.com"},
-    {"first_name": "John", "last_name": "Jones", "full_name": "John Jones", "address1": "5200 Elm St", "city": "Phoenix", "state": "Arizona", "zip": "85001", "phone": "6025550505", "email_domain": "protonmail.com"},
-    {"first_name": "Jennifer", "last_name": "Garcia", "full_name": "Jennifer Garcia", "address1": "6800 Washington Ave", "city": "Philadelphia", "state": "Pennsylvania", "zip": "19101", "phone": "2155550606", "email_domain": "icloud.com"},
-    {"first_name": "Michael", "last_name": "Miller", "full_name": "Michael Miller", "address1": "7500 Park Ave", "city": "San Antonio", "state": "Texas", "zip": "78201", "phone": "2105550707", "email_domain": "mail.com"},
-    {"first_name": "Linda", "last_name": "Davis", "full_name": "Linda Davis", "address1": "8100 Lake Dr", "city": "San Diego", "state": "California", "zip": "92101", "phone": "6195550808", "email_domain": "aol.com"},
-    {"first_name": "William", "last_name": "Rodriguez", "full_name": "William Rodriguez", "address1": "9300 Hill St", "city": "Dallas", "state": "Texas", "zip": "75201", "phone": "2145550909", "email_domain": "yandex.com"},
-    {"first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez", "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301", "phone": "5125551010", "email_domain": "zoho.com"},
-    {"first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez", "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099", "phone": "9045551111", "email_domain": "fastmail.com"},
-    {"first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez", "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101", "phone": "8175551212", "email_domain": "tutanota.com"},
-    {"first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson", "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004", "phone": "6145551313", "email_domain": "gmail.com"},
-    {"first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson", "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201", "phone": "7045551414", "email_domain": "yahoo.com"},
-    {"first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas", "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101", "phone": "4155551515", "email_domain": "outlook.com"},
-    {"first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor", "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201", "phone": "3175551616", "email_domain": "hotmail.com"},
-    {"first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore", "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101", "phone": "2065551717", "email_domain": "protonmail.com"},
-    {"first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson", "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201", "phone": "3035551818", "email_domain": "icloud.com"},
-    {"first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin", "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001", "phone": "2025551919", "email_domain": "mail.com"},
-    {"first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee", "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101", "phone": "6175552020", "email_domain": "aol.com"},
+    {
+        "first_name": "James", "last_name": "Smith", "full_name": "James Smith",
+        "address1": "1200 Main St", "city": "New York", "state": "New York", "zip": "10001",
+        "phone": "2125550101", "email_domain": "gmail.com"
+    },
+    {
+        "first_name": "Mary", "last_name": "Johnson", "full_name": "Mary Johnson",
+        "address1": "2500 Oak Ave", "city": "Los Angeles", "state": "California", "zip": "90001",
+        "phone": "2135550202", "email_domain": "yahoo.com"
+    },
+    {
+        "first_name": "Robert", "last_name": "Williams", "full_name": "Robert Williams",
+        "address1": "3800 Maple Dr", "city": "Chicago", "state": "Illinois", "zip": "60601",
+        "phone": "3125550303", "email_domain": "outlook.com"
+    },
+    {
+        "first_name": "Patricia", "last_name": "Brown", "full_name": "Patricia Brown",
+        "address1": "4500 Cedar Ln", "city": "Houston", "state": "Texas", "zip": "77001",
+        "phone": "7135550404", "email_domain": "hotmail.com"
+    },
+    {
+        "first_name": "John", "last_name": "Jones", "full_name": "John Jones",
+        "address1": "5200 Elm St", "city": "Phoenix", "state": "Arizona", "zip": "85001",
+        "phone": "6025550505", "email_domain": "protonmail.com"
+    },
+    {
+        "first_name": "Jennifer", "last_name": "Garcia", "full_name": "Jennifer Garcia",
+        "address1": "6800 Washington Ave", "city": "Philadelphia", "state": "Pennsylvania", "zip": "19101",
+        "phone": "2155550606", "email_domain": "icloud.com"
+    },
+    {
+        "first_name": "Michael", "last_name": "Miller", "full_name": "Michael Miller",
+        "address1": "7500 Park Ave", "city": "San Antonio", "state": "Texas", "zip": "78201",
+        "phone": "2105550707", "email_domain": "mail.com"
+    },
+    {
+        "first_name": "Linda", "last_name": "Davis", "full_name": "Linda Davis",
+        "address1": "8100 Lake Dr", "city": "San Diego", "state": "California", "zip": "92101",
+        "phone": "6195550808", "email_domain": "aol.com"
+    },
+    {
+        "first_name": "William", "last_name": "Rodriguez", "full_name": "William Rodriguez",
+        "address1": "9300 Hill St", "city": "Dallas", "state": "Texas", "zip": "75201",
+        "phone": "2145550909", "email_domain": "yandex.com"
+    },
+    {
+        "first_name": "Elizabeth", "last_name": "Martinez", "full_name": "Elizabeth Martinez",
+        "address1": "10400 Pine St", "city": "Austin", "state": "Texas", "zip": "73301",
+        "phone": "5125551010", "email_domain": "zoho.com"
+    },
+    {
+        "first_name": "David", "last_name": "Hernandez", "full_name": "David Hernandez",
+        "address1": "11500 Church St", "city": "Jacksonville", "state": "Florida", "zip": "32099",
+        "phone": "9045551111", "email_domain": "fastmail.com"
+    },
+    {
+        "first_name": "Barbara", "last_name": "Lopez", "full_name": "Barbara Lopez",
+        "address1": "12800 Market St", "city": "Fort Worth", "state": "Texas", "zip": "76101",
+        "phone": "8175551212", "email_domain": "tutanota.com"
+    },
+    {
+        "first_name": "Richard", "last_name": "Wilson", "full_name": "Richard Wilson",
+        "address1": "13900 Bridge St", "city": "Columbus", "state": "Ohio", "zip": "43004",
+        "phone": "6145551313", "email_domain": "gmail.com"
+    },
+    {
+        "first_name": "Susan", "last_name": "Anderson", "full_name": "Susan Anderson",
+        "address1": "15000 River Rd", "city": "Charlotte", "state": "North Carolina", "zip": "28201",
+        "phone": "7045551414", "email_domain": "yahoo.com"
+    },
+    {
+        "first_name": "Joseph", "last_name": "Thomas", "full_name": "Joseph Thomas",
+        "address1": "16200 Forest Ave", "city": "San Francisco", "state": "California", "zip": "94101",
+        "phone": "4155551515", "email_domain": "outlook.com"
+    },
+    {
+        "first_name": "Jessica", "last_name": "Taylor", "full_name": "Jessica Taylor",
+        "address1": "17500 Valley Rd", "city": "Indianapolis", "state": "Indiana", "zip": "46201",
+        "phone": "3175551616", "email_domain": "hotmail.com"
+    },
+    {
+        "first_name": "Thomas", "last_name": "Moore", "full_name": "Thomas Moore",
+        "address1": "18800 Mountain Ave", "city": "Seattle", "state": "Washington", "zip": "98101",
+        "phone": "2065551717", "email_domain": "protonmail.com"
+    },
+    {
+        "first_name": "Sarah", "last_name": "Jackson", "full_name": "Sarah Jackson",
+        "address1": "19900 Sunset Blvd", "city": "Denver", "state": "Colorado", "zip": "80201",
+        "phone": "3035551818", "email_domain": "icloud.com"
+    },
+    {
+        "first_name": "Charles", "last_name": "Martin", "full_name": "Charles Martin",
+        "address1": "21200 Highland Ave", "city": "Washington", "state": "District of Columbia", "zip": "20001",
+        "phone": "2025551919", "email_domain": "mail.com"
+    },
+    {
+        "first_name": "Karen", "last_name": "Lee", "full_name": "Karen Lee",
+        "address1": "22500 Grove St", "city": "Boston", "state": "Massachusetts", "zip": "02101",
+        "phone": "6175552020", "email_domain": "aol.com"
+    },
 ]
 
 def generate_matched_shipping_data():
@@ -108,9 +145,6 @@ def generate_matched_shipping_data():
     return address
 
 def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
-    """
-    استخراج الكود مع أولوية للـ codes التي تحتوي على شرطة سفلية _
-    """
     valid_codes = []
     for code in all_codes:
         is_excluded = False
@@ -127,7 +161,7 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         'Free_Postal_Shipping', 'UPS_', 'Economy_', 'First_', 'Standard_', 'Priority_',
         'GroundAdvantage_', 'MediaMail_', 'Flat_', 'Shipping_', 'Express_',
         'PrivacyBannerSettingsBulletPoints_', 'UiExtension_', 'fedex_ground_economy_',
-        'CAMP_', 'by-items_', 'DELIVERY_', 'PAYMENTS_', 'BUYER_', 'WAITING_'
+        'CAMP_', 'by-items_', 'DELIVERY_', 'PAYMENTS_', 'BUYER_', 'REQUIRED_', 'WAITING_'
     ]
     
     filtered_underscore_codes = []
@@ -143,19 +177,30 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     if filtered_underscore_codes:
         return filtered_underscore_codes[0], None
     
+    if all_typenames:
+        typename_underscore = [t for t in all_typenames if '_' in t]
+        filtered_typename_underscore = []
+        for t in typename_underscore:
+            is_unwanted = False
+            for pattern in unwanted_patterns:
+                if pattern in t:
+                    is_unwanted = True
+                    break
+            if not is_unwanted:
+                filtered_typename_underscore.append(t)
+        
+        if filtered_typename_underscore:
+            return filtered_typename_underscore[0], filtered_typename_underscore[0]
+    
     if valid_codes:
         return valid_codes[0], None
     
     if all_typenames:
-        typename_underscore = [t for t in all_typenames if '_' in t]
-        if typename_underscore:
-            return typename_underscore[0], typename_underscore[0]
         return all_typenames[0], all_typenames[0]
     
     return None, None
 
 def ff(ccx, site, task_id=None):
-    
     if task_id:
         with active_tasks_lock:
             active_tasks[task_id] = {"status": "running", "started": time.time(), "cc": ccx, "site": site}
@@ -186,41 +231,25 @@ def ff(ccx, site, task_id=None):
     order_number = None
     payment_status = None
     
-    random_proxy = get_random_proxy()
-    logger.info(f"[{task_id}] Using proxy: {random_proxy}")
-    
     # ==================== 1. جلب رابط الدفع ====================
     try:
-        proxy_url = f"http://{random_proxy}"
+        proxy = "px440401.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
+        ip, port, user, pwd = proxy.split(":")
+        proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
         proxies = {"http": proxy_url, "https": proxy_url}
         
         s = requests.Session()
-        s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
+        s.headers.update({'User-Agent':usser})
         
-        digital_keywords = ['worry-free', 'protection', 'insurance', 'warranty', 'digital', 'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription', 'service', 'guarantee', 'support']
+        digital_keywords = [
+            'worry-free', 'protection', 'insurance', 'warranty', 'digital', 
+            'download', 'ebook', 'pdf', 'gift card', 'membership', 'subscription',
+            'service', 'guarantee', 'support'
+        ]
         
-        max_retries = 5
-        r = None
-        for retry in range(max_retries):
-            try:
-                r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=190)
-                if r.status_code == 200:
-                    break
-                else:
-                    logger.warning(f"[{task_id}] Products fetch failed (attempt {retry+1}), status: {r.status_code}")
-                    time.sleep(random.uniform(1, 3))
-            except Exception as ex:
-                logger.warning(f"[{task_id}] Products fetch error (attempt {retry+1}): {str(ex)}")
-                time.sleep(random.uniform(1, 3))
-                if retry < max_retries - 1:
-                    random_proxy = get_random_proxy()
-                    proxy_url = f"http://{random_proxy}"
-                    proxies = {"http": proxy_url, "https": proxy_url}
-                    s = requests.Session()
-                    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
-        
-        if r is None or r.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to fetch products after retries", "task_id": task_id}
+        r = s.get(urljoin(site, '/products.json?limit=250'), proxies=proxies, timeout=190)
+        if r.status_code != 200:
+            return {"success": False, "code": None, "error": "Failed to fetch products", "task_id": task_id}
         
         products_data = r.json()
         shippable_products = []
@@ -242,7 +271,8 @@ def ff(ccx, site, task_id=None):
             for v in p.get('variants', []):
                 price = float(v.get('price', 0))
                 available = v.get('available', True)
-                if price > 0 and available and 0.50 <= price <= 5.00:
+                # اختيار منتجات رخيصة بشكل عشوائي بين 1.00 و 2.00
+                if price > 0 and available and 1.0 <= price <= 2.0:
                     shippable_products.append({
                         'title': p.get('title'),
                         'price': price,
@@ -251,85 +281,53 @@ def ff(ccx, site, task_id=None):
                     })
         
         if not shippable_products:
-            for p in products_data.get('products', []):
-                title = p.get('title', '').lower()
-                product_type = p.get('product_type', '').lower()
-                vendor = p.get('vendor', '').lower()
-                
-                is_digital = False
-                for keyword in digital_keywords:
-                    if keyword in title or keyword in product_type or keyword in vendor:
-                        is_digital = True
-                        break
-                
-                if is_digital:
-                    continue
-                
-                for v in p.get('variants', []):
-                    price = float(v.get('price', 0))
-                    available = v.get('available', True)
-                    if price > 0 and available and price >= 1.0:
-                        shippable_products.append({
-                            'title': p.get('title'),
-                            'price': price,
-                            'variant_id': v.get('id'),
-                            'handle': p.get('handle')
-                        })
+            return {"success": False, "code": None, "error": "No shippable product in price range", "task_id": task_id}
         
-        if not shippable_products:
-            return {"success": False, "code": None, "error": "No shippable product", "task_id": task_id}
-        
+        # اختيار عشوائي من المنتجات الرخيصة المتاحة
         selected_product = random.choice(shippable_products)
         variant_id = selected_product['variant_id']
         total_amount = f"${selected_product['price']:.2f}"
         
-        resp = None
-        for retry in range(max_retries):
+        # ===== محاولة الإضافة إلى السلة مع إعادة المحاولة =====
+        max_retries = 5
+        cart_added = False
+        for retry_attempt in range(max_retries):
             try:
                 resp = s.post(urljoin(site, '/cart/add.js'), json={'quantity': 1, 'id': variant_id}, proxies=proxies, timeout=100)
                 if resp.status_code == 200:
-                    logger.info(f"[{task_id}] Added to cart (attempt {retry+1})")
+                    cart_added = True
+                    logger.info(f"[{task_id}] Cart add successful on attempt {retry_attempt + 1}")
                     break
                 else:
-                    logger.warning(f"[{task_id}] Add to cart failed (attempt {retry+1}), status: {resp.status_code}")
-                    time.sleep(random.uniform(1, 3))
-            except Exception as ex:
-                logger.warning(f"[{task_id}] Add to cart error (attempt {retry+1}): {str(ex)}")
-                time.sleep(random.uniform(1, 3))
-                if retry < max_retries - 1:
-                    random_proxy = get_random_proxy()
-                    proxy_url = f"http://{random_proxy}"
-                    proxies = {"http": proxy_url, "https": proxy_url}
-                    s = requests.Session()
-                    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
+                    logger.warning(f"[{task_id}] Cart add failed (attempt {retry_attempt + 1}/{max_retries}), status: {resp.status_code}")
+                    time.sleep(1.5 * (retry_attempt + 1))  # زيادة وقت الانتظار تدريجياً
+            except Exception as e:
+                logger.warning(f"[{task_id}] Cart add exception (attempt {retry_attempt + 1}/{max_retries}): {str(e)}")
+                time.sleep(1.5 * (retry_attempt + 1))
         
-        if resp is None or resp.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to add to cart after retries", "task_id": task_id}
+        if not cart_added:
+            return {"success": False, "code": None, "error": f"Failed to add to cart after {max_retries} attempts", "task_id": task_id}
         
-        response = None
-        for retry in range(max_retries):
+        # ===== محاولة الانتقال إلى checkout مع إعادة المحاولة =====
+        checkout_retries = 3
+        checkout_success = False
+        for checkout_attempt in range(checkout_retries):
             try:
                 response = s.post(f'{site}/cart', data={'checkout': ''}, proxies=proxies, timeout=100)
-                if response.status_code == 200:
-                    logger.info(f"[{task_id}] Checkout success (attempt {retry+1})")
+                if response.status_code == 200 or response.url != f'{site}/cart':
+                    checkout_url = response.url
+                    checkout_success = True
+                    logger.info(f"[{task_id}] Checkout URL obtained on attempt {checkout_attempt + 1}")
                     break
                 else:
-                    logger.warning(f"[{task_id}] Checkout failed (attempt {retry+1}), status: {response.status_code}")
-                    time.sleep(random.uniform(1, 3))
-            except Exception as ex:
-                logger.warning(f"[{task_id}] Checkout error (attempt {retry+1}): {str(ex)}")
-                time.sleep(random.uniform(1, 3))
-                if retry < max_retries - 1:
-                    random_proxy = get_random_proxy()
-                    proxy_url = f"http://{random_proxy}"
-                    proxies = {"http": proxy_url, "https": proxy_url}
-                    s = requests.Session()
-                    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
+                    logger.warning(f"[{task_id}] Checkout redirect failed (attempt {checkout_attempt + 1}/{checkout_retries})")
+                    time.sleep(2)
+            except Exception as e:
+                logger.warning(f"[{task_id}] Checkout exception (attempt {checkout_attempt + 1}/{checkout_retries}): {str(e)}")
+                time.sleep(2)
         
-        if response is None or response.status_code != 200:
-            return {"success": False, "code": None, "error": "Failed to get checkout after retries", "task_id": task_id}
-        
-        checkout_url = response.url
+        if not checkout_success or not checkout_url:
+            return {"success": False, "code": None, "error": "Failed to get checkout URL", "task_id": task_id}
         
     except Exception as e:
         return {"success": False, "code": None, "error": str(e), "task_id": task_id}
@@ -353,7 +351,7 @@ def ff(ccx, site, task_id=None):
         
         driver = webdriver.Chrome(options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        wait = WebDriverWait(driver, 3)
+        wait = WebDriverWait(driver, 15)
         driver.set_page_load_timeout(25)
         
         driver.get(checkout_url)
@@ -498,12 +496,12 @@ def ff(ccx, site, task_id=None):
         except:
             return {"success": False, "code": None, "error": "Payment error", "task_id": task_id}
         
-        # ==================== 5. اعتراض GraphQL ====================
+        # ==================== 5. اعتراض GraphQL - فلترة متقدمة ====================
         try:
             script = """
+            window.pollForReceiptResponses = [];
             window.graphqlResponses = [];
             window.allResponses = [];
-            window.pollForReceiptResponses = [];
             window.pageUrls = [];
             
             var originalFetch = window.fetch;
@@ -517,30 +515,49 @@ def ff(ccx, site, task_id=None):
                     var requestBody = null;
                     
                     if (options && options.body) {
-                        try { requestBody = options.body; } catch(e) {}
+                        try {
+                            requestBody = options.body;
+                        } catch(e) {}
                     }
                     
                     clone.text().then(function(text) {
-                        var data = {url: responseUrl, body: text, requestBody: requestBody, timestamp: new Date().toISOString()};
+                        var data = {
+                            url: responseUrl,
+                            body: text,
+                            requestBody: requestBody,
+                            timestamp: new Date().toISOString()
+                        };
+                        
                         window.allResponses.push(data);
                         
+                        // فقط اعتراض persisted مع التأكد من نوع العملية
                         if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
+                            
+                            var isPollForReceipt = false;
                             var isProposal = false;
+                            
                             if (requestBody) {
                                 try {
                                     var parsedBody = JSON.parse(requestBody);
-                                    if (parsedBody.operationName === 'Proposal') isProposal = true;
+                                    if (parsedBody.operationName === 'PollForReceipt') {
+                                        isPollForReceipt = true;
+                                    }
+                                    if (parsedBody.operationName === 'Proposal') {
+                                        isProposal = true;
+                                    }
                                 } catch(e) {}
                             }
+                            
+                            // تسجيل PollForReceipt فقط في المصفوفة المخصصة
+                            if (isPollForReceipt) {
+                                window.pollForReceiptResponses.push(data);
+                            }
+                            
+                            // تسجيل الكل ما عدا Proposal في graphqlResponses
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                if (requestBody) {
-                                    try {
-                                        var parsedBody2 = JSON.parse(requestBody);
-                                        if (parsedBody2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data);
-                                    } catch(e) {}
-                                }
                             }
+                            // Proposal يتم تجاهلها تماماً ولا تسجل في أي مصفوفة
                         }
                     });
                     return response;
@@ -549,24 +566,65 @@ def ff(ccx, site, task_id=None):
             
             var originalXHROpen = XMLHttpRequest.prototype.open;
             var originalXHRSend = XMLHttpRequest.prototype.send;
-            XMLHttpRequest.prototype.open = function(method, url) { this._url = url; return originalXHROpen.apply(this, arguments); };
+            
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this._url = url;
+                this._method = method;
+                return originalXHROpen.apply(this, arguments);
+            };
+            
             XMLHttpRequest.prototype.send = function(body) {
                 var self = this;
+                var requestBody = body;
+                
                 this.addEventListener('load', function() {
                     try {
-                        var data = {url: self._url, body: self.responseText, requestBody: body, timestamp: new Date().toISOString()};
+                        var text = self.responseText;
+                        var responseUrl = self._url;
+                        
+                        var data = {
+                            url: responseUrl,
+                            body: text,
+                            requestBody: requestBody,
+                            timestamp: new Date().toISOString()
+                        };
+                        
                         window.allResponses.push(data);
-                        if (self._url && self._url.includes('/checkouts/internal/graphql/persisted')) {
+                        
+                        if (responseUrl && responseUrl.includes('/checkouts/internal/graphql/persisted')) {
+                            
+                            var isPollForReceipt = false;
                             var isProposal = false;
-                            if (body) { try { var p = JSON.parse(body); if (p.operationName === 'Proposal') isProposal = true; } catch(e) {} }
+                            
+                            if (requestBody) {
+                                try {
+                                    var parsedBody = JSON.parse(requestBody);
+                                    if (parsedBody.operationName === 'PollForReceipt') {
+                                        isPollForReceipt = true;
+                                    }
+                                    if (parsedBody.operationName === 'Proposal') {
+                                        isProposal = true;
+                                    }
+                                } catch(e) {}
+                            }
+                            
+                            if (isPollForReceipt) {
+                                window.pollForReceiptResponses.push(data);
+                            }
+                            
                             if (!isProposal) {
                                 window.graphqlResponses.push(data);
-                                if (body) { try { var p2 = JSON.parse(body); if (p2.operationName === 'PollForReceipt') window.pollForReceiptResponses.push(data); } catch(e) {} }
                             }
                         }
                     } catch(e) {}
                 });
                 return originalXHRSend.apply(this, arguments);
+            };
+            
+            var originalPushState = history.pushState;
+            history.pushState = function(state, title, url) {
+                window.pageUrls.push(url);
+                return originalPushState.apply(this, arguments);
             };
             """
             driver.execute_script(script)
@@ -611,7 +669,7 @@ def ff(ccx, site, task_id=None):
                     }
                 """)
             
-            # ==================== 7. استخراج الكود ====================
+            # ==================== 7. استخراج الكود - يركز على PollForReceipt فقط ====================
             found_code = None
             found_typename = None
             all_codes = []
@@ -638,25 +696,28 @@ def ff(ccx, site, task_id=None):
                 'UPS',
                 'DELIVERY_PHONE_NUMBER_REQUIRED',
                 'Economy',
-                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE',
-                'First',
-                'by-items',
-                'Standard',
-                'Priority',
-                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
-                'GroundAdvantage',
+                'DELIVERY_INVALID_POSTAL_CODE_FOR_ZONE', 
+                'First', 
+                'by-items', 
+                'Standard', 
+                'Priority', 
+                'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE', 
+                'GroundAdvantage', 
                 'MediaMail',
-                'AddressLocalizationKeys',
-                'NegotiationResultPayload'
+                'AddressLocalizationKeys'
             ]
             
-            for attempt in range(12):
+            for attempt in range(10):
                 time.sleep(1.5)
                 
+                # استخدام pollForReceiptResponses فقط للاستخراج الأساسي
                 poll_responses = driver.execute_script("return window.pollForReceiptResponses || [];")
+                # استخدام graphqlResponses كاحتياط فقط
                 graphql_responses = driver.execute_script("return window.graphqlResponses || [];")
                 current_url = driver.current_url
                 final_url = current_url
+                
+                page_urls = driver.execute_script("return window.pageUrls || [];")
                 
                 if '/thank_you' in current_url:
                     order_confirmed = True
@@ -700,7 +761,7 @@ def ff(ccx, site, task_id=None):
                 except:
                     pass
                 
-                # استخراج من PollForReceipt
+                # معالجة PollForReceipt responses أولاً
                 for resp in poll_responses:
                     body = resp.get('body', '')
                     url = resp.get('url', '')
@@ -708,10 +769,7 @@ def ff(ccx, site, task_id=None):
                     if not body:
                         continue
                     
-                    # تخطي الردود اللي تحتوي على NegotiationResultPayload
-                    if 'NegotiationResultPayload' in body:
-                        continue
-                    
+                    # استخراج الأكواد
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
                     for code in matches:
@@ -724,15 +782,17 @@ def ff(ccx, site, task_id=None):
                             if not is_excluded and code not in all_codes:
                                 all_codes.append(code)
                     
+                    # استخراج __typename
                     if '__typename' in body:
                         pattern = r'"__typename"\s*:\s*"([^"]+)"'
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for typename in matches:
                             if len(typename) > 3 and len(typename) < 80:
                                 if typename not in ['Query', 'Mutation', 'Subscription']:
-                                    if 'Negotiation' not in typename and typename not in all_typenames:
+                                    if typename not in all_typenames:
                                         all_typenames.append(typename)
                     
+                    # فحص processingError
                     if 'processingError' in body:
                         try:
                             data = json.loads(body)
@@ -756,6 +816,7 @@ def ff(ccx, site, task_id=None):
                         except:
                             pass
                     
+                    # فحص errors
                     if 'errors' in body:
                         try:
                             data = json.loads(body)
@@ -780,33 +841,27 @@ def ff(ccx, site, task_id=None):
                         except:
                             pass
                     
-                    if '/thank_you' in body.lower() or 'order confirmed' in body.lower() or 'thank you for your order' in body.lower():
-                        order_confirmed = True
-                        found_code = 'ORDER_CONFIRMED'
-                        break
-                    
+                    # فحص CompletePaymentChallenge
                     if 'CompletePaymentChallenge' in body:
-                        is_3ds = True
-                        found_code = '3DS_REQUIRED'
-                        found_typename = 'CompletePaymentChallenge'
-                        break
-                    
-                    body_upper = body.upper()
-                    if 'INCORRECT_ZIP' in body_upper and 'INCORRECT_ZIP' not in all_codes:
-                        all_codes.append('INCORRECT_ZIP')
-                    if 'INSUFFICIENT_FUNDS' in body_upper and 'INSUFFICIENT_FUNDS' not in all_codes:
-                        all_codes.append('INSUFFICIENT_FUNDS')
-                    if 'INCORRECT_CVC' in body_upper and 'INCORRECT_CVC' not in all_codes:
-                        all_codes.append('INCORRECT_CVC')
-                    if 'CARD_DECLINED' in body_upper and 'CARD_DECLINED' not in all_codes:
-                        all_codes.append('CARD_DECLINED')
-                    if 'FRAUD' in body_upper and 'FRAUD_SUSPECTED' not in all_codes:
-                        all_codes.append('FRAUD_SUSPECTED')
+                        try:
+                            data = json.loads(body)
+                            if 'data' in data and 'receipt' in data['data']:
+                                receipt = data['data']['receipt']
+                                if 'action' in receipt:
+                                    action = receipt['action']
+                                    if action.get('__typename') == 'CompletePaymentChallenge':
+                                        is_3ds = True
+                                        found_code = '3DS_REQUIRED'
+                                        found_typename = 'CompletePaymentChallenge'
+                                        response_result = '3DS Secure required - Please complete authentication'
+                                        break
+                        except:
+                            pass
                 
                 if found_code or order_confirmed:
                     break
                 
-                # استخراج من graphqlResponses (بدون Proposal)
+                # معالجة graphqlResponses كاحتياط إذا لم نجد شيء في PollForReceipt
                 if not all_codes:
                     for resp in graphql_responses:
                         body = resp.get('body', '')
@@ -815,28 +870,92 @@ def ff(ccx, site, task_id=None):
                         if not body:
                             continue
                         
-                        # تخطي الردود اللي تحتوي على NegotiationResultPayload
-                        if 'NegotiationResultPayload' in body:
-                            continue
-                        
-                        if '/thank_you' in body.lower() or 'order confirmed' in body.lower():
+                        if '/thank_you' in body or 'thank_you' in url:
                             order_confirmed = True
                             found_code = 'ORDER_CONFIRMED'
+                            response_result = 'Order confirmed - Thank you for your purchase!'
+                            break
+                        
+                        if f"{base_url}/thank_you" in body or f"{base_url}/post_purchase" in body:
+                            order_confirmed = True
+                            found_code = 'ORDER_CONFIRMED'
+                            response_result = 'Order confirmed - Thank you for your purchase!'
+                            break
+                        
+                        if 'Your order is confirmed' in body or 'Order confirmed' in body:
+                            order_confirmed = True
+                            found_code = 'ORDER_CONFIRMED'
+                            response_result = 'Order confirmed - Thank you for your purchase!'
+                            order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
+                            if order_match:
+                                order_number = order_match.group(1)
+                            break
+                        
+                        if 'Thank you for your order' in body:
+                            order_confirmed = True
+                            found_code = 'ORDER_CONFIRMED'
+                            response_result = 'Order confirmed - Thank you for your purchase!'
+                            order_match = re.search(r'Order #?([A-Z0-9]+)', body, re.IGNORECASE)
+                            if order_match:
+                                order_number = order_match.group(1)
                             break
                         
                         pattern = r'"code"\s*:\s*"([^"]+)"'
-                        for code in re.findall(pattern, body, re.IGNORECASE):
-                            if len(code) > 3 and len(code) < 80 and ' ' not in code and code not in all_codes:
-                                all_codes.append(code)
+                        matches = re.findall(pattern, body, re.IGNORECASE)
+                        for code in matches:
+                            if len(code) > 3 and len(code) < 80 and ' ' not in code:
+                                is_excluded = False
+                                for excluded in excluded_codes:
+                                    if excluded in code:
+                                        is_excluded = True
+                                        break
+                                if not is_excluded and code not in all_codes:
+                                    all_codes.append(code)
                         
                         if '__typename' in body:
-                            for typename in re.findall(r'"__typename"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
-                                if typename not in ['Query', 'Mutation', 'Subscription'] and 'Negotiation' not in typename and typename not in all_typenames:
-                                    all_typenames.append(typename)
+                            pattern = r'"__typename"\s*:\s*"([^"]+)"'
+                            matches = re.findall(pattern, body, re.IGNORECASE)
+                            for typename in matches:
+                                if len(typename) > 3 and len(typename) < 80:
+                                    if typename not in ['Query', 'Mutation', 'Subscription']:
+                                        if typename not in all_typenames:
+                                            all_typenames.append(typename)
+                        
+                        pattern = r'"status"\s*:\s*"([^"]+)"'
+                        matches = re.findall(pattern, body, re.IGNORECASE)
+                        for status in matches:
+                            if len(status) > 3 and len(status) < 80 and ' ' not in status:
+                                is_excluded = False
+                                for excluded in excluded_codes:
+                                    if excluded in status:
+                                        is_excluded = True
+                                        break
+                                if not is_excluded and status not in all_codes:
+                                    all_codes.append(status)
+                        
+                        if '/authentications/' in body or 'AUTHORIZATION_ERROR' in body:
+                            if '3DS_REQUIRED' not in all_codes:
+                                all_codes.append('3DS_REQUIRED')
+                                response_result = '3DS Secure required'
+                        
+                        if 'INCORRECT_ZIP' in body:
+                            if 'INCORRECT_ZIP' not in all_codes:
+                                all_codes.append('INCORRECT_ZIP')
+                                response_result = 'Incorrect ZIP'
+                        if 'INSUFFICIENT_FUNDS' in body:
+                            if 'INSUFFICIENT_FUNDS' not in all_codes:
+                                all_codes.append('INSUFFICIENT_FUNDS')
+                                response_result = 'Insufficient funds'
+                        if 'INCORRECT_CVC' in body:
+                            if 'INCORRECT_CVC' not in all_codes:
+                                all_codes.append('INCORRECT_CVC')
+                                response_result = 'INCORRECT_CVC'
+                
+                if found_code or order_confirmed:
+                    break
                 
                 final_url = driver.current_url
             
-            # Performance logs
             if not found_code and not all_codes and not order_confirmed:
                 logs = driver.get_log('performance')
                 for log in logs:
@@ -851,9 +970,7 @@ def ff(ccx, site, task_id=None):
                                         response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
                                         body = response.get('body', '')
                                         if body:
-                                            # تخطي NegotiationResultPayload
-                                            if 'NegotiationResultPayload' in body:
-                                                continue
+                                            # التحقق من نوع العملية
                                             if 'CompletePaymentChallenge' in body:
                                                 try:
                                                     data = json.loads(body)
@@ -865,11 +982,14 @@ def ff(ccx, site, task_id=None):
                                                                 is_3ds = True
                                                                 found_code = '3DS_REQUIRED'
                                                                 found_typename = 'CompletePaymentChallenge'
+                                                                response_result = '3DS Secure required - Please complete authentication'
                                                                 break
                                                 except:
                                                     pass
                                             if not found_code:
-                                                for code in re.findall(r'"code"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
+                                                pattern = r'"code"\s*:\s*"([^"]+)"'
+                                                matches = re.findall(pattern, body, re.IGNORECASE)
+                                                for code in matches:
                                                     if len(code) > 3 and len(code) < 80 and ' ' not in code:
                                                         is_excluded = False
                                                         for excluded in excluded_codes:
@@ -879,9 +999,11 @@ def ff(ccx, site, task_id=None):
                                                         if not is_excluded and code not in all_codes:
                                                             all_codes.append(code)
                                             if '__typename' in body:
-                                                for typename in re.findall(r'"__typename"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
+                                                pattern = r'"__typename"\s*:\s*"([^"]+)"'
+                                                matches = re.findall(pattern, body, re.IGNORECASE)
+                                                for typename in matches:
                                                     if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ['Query', 'Mutation', 'Subscription'] and 'Negotiation' not in typename:
+                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
                                                             if typename not in all_typenames:
                                                                 all_typenames.append(typename)
                                     except:
@@ -908,6 +1030,9 @@ def ff(ccx, site, task_id=None):
             elif is_3ds or found_code == '3DS_REQUIRED':
                 result_code = '3DS_REQUIRED'
                 result_typename = found_typename or 'CompletePaymentChallenge'
+            elif found_code == 'SUCCESS':
+                result_code = 'SUCCESS'
+                result_typename = found_typename
             elif found_code and found_code not in excluded_codes:
                 result_code = found_code
                 result_typename = found_typename
@@ -919,9 +1044,6 @@ def ff(ccx, site, task_id=None):
                 if extracted_code:
                     result_code = extracted_code
                     result_typename = extracted_typename if extracted_typename else found_typename
-                elif all_codes:
-                    result_code = all_codes[0]
-                    result_typename = None
                 elif all_typenames:
                     result_code = all_typenames[0]
                     result_typename = all_typenames[0]
@@ -946,8 +1068,7 @@ def ff(ccx, site, task_id=None):
                     "checkout_url": checkout_url,
                     "final_url": final_url,
                     "error": None,
-                    "task_id": task_id,
-                    "proxy_used": random_proxy
+                    "task_id": task_id
                 }
             else:
                 return {
@@ -960,8 +1081,7 @@ def ff(ccx, site, task_id=None):
                     "checkout_url": checkout_url,
                     "final_url": final_url,
                     "error": "Code not found",
-                    "task_id": task_id,
-                    "proxy_used": random_proxy
+                    "task_id": task_id
                 }
         
         except Exception as e:
@@ -982,8 +1102,7 @@ def ff(ccx, site, task_id=None):
                 "checkout_url": checkout_url,
                 "final_url": None,
                 "error": str(e),
-                "task_id": task_id,
-                "proxy_used": random_proxy
+                "task_id": task_id
             }
     
     except Exception as e:
@@ -1004,8 +1123,7 @@ def ff(ccx, site, task_id=None):
             "checkout_url": checkout_url,
             "final_url": None,
             "error": str(e),
-            "task_id": task_id,
-            "proxy_used": random_proxy
+            "task_id": task_id
         }
 
 # ==================== Routes ====================
@@ -1041,7 +1159,6 @@ def status():
         return jsonify({
             "active_tasks_count": len(active_tasks),
             "max_workers": MAX_WORKERS,
-            "proxy_count": len(PROXY_LIST),
             "tasks": active_tasks
         })
 
@@ -1050,8 +1167,7 @@ def health():
     return jsonify({
         "status": "ok",
         "max_workers": MAX_WORKERS,
-        "active_tasks": len(active_tasks),
-        "proxy_count": len(PROXY_LIST)
+        "active_tasks": len(active_tasks)
     })
 
 if __name__ == '__main__':
