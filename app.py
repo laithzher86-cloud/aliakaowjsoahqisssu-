@@ -1,4 +1,3 @@
-
 # app.py - ملف API عالي الأداء مع دعم الطلبات المتعددة المتوازية
 import time
 import re
@@ -122,7 +121,6 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
         if not is_excluded:
             valid_codes.append(code)
     
-    # البحث عن codes تحتوي على _
     underscore_codes = [code for code in valid_codes if '_' in code]
     
     unwanted_patterns = [
@@ -145,11 +143,9 @@ def extract_code_underscore_priority(all_codes, all_typenames, excluded_codes):
     if filtered_underscore_codes:
         return filtered_underscore_codes[0], None
     
-    # إذا ما لقينا code يحتوي على _، نرجع أول code عادي
     if valid_codes:
         return valid_codes[0], None
     
-    # كملاذ أخير، نرجع typename
     if all_typenames:
         typename_underscore = [t for t in all_typenames if '_' in t]
         if typename_underscore:
@@ -650,7 +646,8 @@ def ff(ccx, site, task_id=None):
                 'PAYMENTS_INVALID_POSTAL_CODE_FOR_ZONE',
                 'GroundAdvantage',
                 'MediaMail',
-                'AddressLocalizationKeys'
+                'AddressLocalizationKeys',
+                'NegotiationResultPayload'
             ]
             
             for attempt in range(12):
@@ -711,7 +708,10 @@ def ff(ccx, site, task_id=None):
                     if not body:
                         continue
                     
-                    # استخراج code
+                    # تخطي الردود اللي تحتوي على NegotiationResultPayload
+                    if 'NegotiationResultPayload' in body:
+                        continue
+                    
                     pattern = r'"code"\s*:\s*"([^"]+)"'
                     matches = re.findall(pattern, body, re.IGNORECASE)
                     for code in matches:
@@ -724,17 +724,15 @@ def ff(ccx, site, task_id=None):
                             if not is_excluded and code not in all_codes:
                                 all_codes.append(code)
                     
-                    # استخراج __typename
                     if '__typename' in body:
                         pattern = r'"__typename"\s*:\s*"([^"]+)"'
                         matches = re.findall(pattern, body, re.IGNORECASE)
                         for typename in matches:
                             if len(typename) > 3 and len(typename) < 80:
                                 if typename not in ['Query', 'Mutation', 'Subscription']:
-                                    if typename not in all_typenames:
+                                    if 'Negotiation' not in typename and typename not in all_typenames:
                                         all_typenames.append(typename)
                     
-                    # فحص processingError
                     if 'processingError' in body:
                         try:
                             data = json.loads(body)
@@ -758,7 +756,6 @@ def ff(ccx, site, task_id=None):
                         except:
                             pass
                     
-                    # فحص errors
                     if 'errors' in body:
                         try:
                             data = json.loads(body)
@@ -818,6 +815,10 @@ def ff(ccx, site, task_id=None):
                         if not body:
                             continue
                         
+                        # تخطي الردود اللي تحتوي على NegotiationResultPayload
+                        if 'NegotiationResultPayload' in body:
+                            continue
+                        
                         if '/thank_you' in body.lower() or 'order confirmed' in body.lower():
                             order_confirmed = True
                             found_code = 'ORDER_CONFIRMED'
@@ -830,7 +831,7 @@ def ff(ccx, site, task_id=None):
                         
                         if '__typename' in body:
                             for typename in re.findall(r'"__typename"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
-                                if typename not in ['Query', 'Mutation', 'Subscription'] and typename not in all_typenames:
+                                if typename not in ['Query', 'Mutation', 'Subscription'] and 'Negotiation' not in typename and typename not in all_typenames:
                                     all_typenames.append(typename)
                 
                 final_url = driver.current_url
@@ -850,6 +851,9 @@ def ff(ccx, site, task_id=None):
                                         response = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
                                         body = response.get('body', '')
                                         if body:
+                                            # تخطي NegotiationResultPayload
+                                            if 'NegotiationResultPayload' in body:
+                                                continue
                                             if 'CompletePaymentChallenge' in body:
                                                 try:
                                                     data = json.loads(body)
@@ -877,7 +881,7 @@ def ff(ccx, site, task_id=None):
                                             if '__typename' in body:
                                                 for typename in re.findall(r'"__typename"\s*:\s*"([^"]+)"', body, re.IGNORECASE):
                                                     if len(typename) > 3 and len(typename) < 80:
-                                                        if typename not in ['Query', 'Mutation', 'Subscription']:
+                                                        if typename not in ['Query', 'Mutation', 'Subscription'] and 'Negotiation' not in typename:
                                                             if typename not in all_typenames:
                                                                 all_typenames.append(typename)
                                     except:
@@ -908,7 +912,6 @@ def ff(ccx, site, task_id=None):
                 result_code = found_code
                 result_typename = found_typename
             else:
-                # استخدام دالة الاستخراج - أولوية للـ code اللي يحتوي على _
                 extracted_code, extracted_typename = extract_code_underscore_priority(
                     all_codes, all_typenames, excluded_codes
                 )
